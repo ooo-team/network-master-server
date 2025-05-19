@@ -87,21 +87,19 @@ func (s *Server) joinRoom(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.mu.Lock()
+	defer s.mu.Unlock()
 	room, exists := s.rooms[roomID]
 	if !exists {
-		s.mu.Unlock()
 		http.Error(w, "Room not found", http.StatusNotFound)
 		return
 	}
 
 	if len(room.Clients) >= room.MaxClients {
-		s.mu.Unlock()
 		http.Error(w, "Room is full", http.StatusForbidden)
 		return
 	}
 
 	room.Clients = append(room.Clients, clientIP)
-	s.mu.Unlock()
 
 	w.WriteHeader(http.StatusOK)
 }
@@ -129,21 +127,19 @@ func (s *Server) deleteRoom(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.mu.Lock()
+	defer s.mu.Unlock()
 	room, exists := s.rooms[roomID]
 	if !exists {
-		s.mu.Unlock()
 		http.Error(w, "Room not found", http.StatusNotFound)
 		return
 	}
 
 	if room.Host != clientIP {
-		s.mu.Unlock()
 		http.Error(w, "Only room host can delete the room", http.StatusForbidden)
 		return
 	}
 
 	delete(s.rooms, roomID)
-	s.mu.Unlock()
 
 	w.WriteHeader(http.StatusOK)
 }
