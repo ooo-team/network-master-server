@@ -57,12 +57,14 @@ func (s *Server) createRoom(w http.ResponseWriter, r *http.Request) {
 		ID:         uuid.New().String(),
 		Host:       host,
 		MaxClients: maxClientsInt,
-		Clients:    make([]string, 0),
+		Clients:    []string{host},
 	}
 
 	s.mu.Lock()
 	s.rooms[room.ID] = room
 	s.mu.Unlock()
+
+	log.Printf("Room created: %s", room.ID)
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(map[string]string{"room_id": room.ID})
@@ -87,19 +89,37 @@ func (s *Server) joinRoom(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	room, exists := s.rooms[roomID]
 	if !exists {
+		s.mu.Unlock()
 		http.Error(w, "Room not found", http.StatusNotFound)
 		return
 	}
 
+	// Проверяем, не является ли клиент уже хостом
+	if clientIP == room.Host {
+		s.mu.Unlock()
+		http.Error(w, "Host is already in the room", http.StatusBadRequest)
+		return
+	}
+
+	// Проверяем, не находится ли клиент уже в комнате
+	for _, existingClient := range room.Clients {
+		if existingClient == clientIP {
+			s.mu.Unlock()
+			http.Error(w, "Client is already in the room", http.StatusBadRequest)
+			return
+		}
+	}
+
 	if len(room.Clients) >= room.MaxClients {
+		s.mu.Unlock()
 		http.Error(w, "Room is full", http.StatusForbidden)
 		return
 	}
 
 	room.Clients = append(room.Clients, clientIP)
+	s.mu.Unlock()
 
 	w.WriteHeader(http.StatusOK)
 }

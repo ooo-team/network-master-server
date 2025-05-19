@@ -72,6 +72,10 @@ func TestRoomAPI(t *testing.T) {
 			if room.MaxClients != 4 {
 				t.Errorf("Expected max clients 4, got %d", room.MaxClients)
 			}
+			// Проверяем, что хост добавлен в список клиентов
+			if len(room.Clients) != 1 || room.Clients[0] != "192.168.1.1" {
+				t.Errorf("Expected host 192.168.1.1 in clients list, got %v", room.Clients)
+			}
 		})
 
 		// Тест 3: Присоединение клиента к комнате
@@ -103,12 +107,52 @@ func TestRoomAPI(t *testing.T) {
 				t.Fatalf("Failed to decode room: %v", err)
 			}
 
-			if len(room.Clients) != 1 || room.Clients[0] != "192.168.1.2" {
-				t.Errorf("Expected client 192.168.1.2 in room, got %v", room.Clients)
+			// Проверяем, что в списке клиентов есть и хост, и новый клиент
+			if len(room.Clients) != 2 {
+				t.Errorf("Expected 2 clients (host + new client), got %d", len(room.Clients))
+			}
+			clients := make(map[string]bool)
+			for _, client := range room.Clients {
+				clients[client] = true
+			}
+			if !clients["192.168.1.1"] {
+				t.Error("Host not found in clients list")
+			}
+			if !clients["192.168.1.2"] {
+				t.Error("New client not found in clients list")
 			}
 		})
 
-		// Тест 4: Удаление комнаты
+		// Тест 4: Проверка максимального количества клиентов
+		t.Run("Max Clients Check", func(t *testing.T) {
+			maxClients := 4
+			// Уже есть 2 клиента (host и 192.168.1.2), добавим ещё (maxClients-1) и попробуем добавить ещё одного сверх лимита
+			for i := 3; i <= maxClients+1; i++ {
+				ip := fmt.Sprintf("192.168.1.%d", i)
+				req, err := http.NewRequest(http.MethodPut, fmt.Sprintf("%s/v1/rooms?room_id=%s&client=%s", ts.URL, roomID, ip), nil)
+				if err != nil {
+					t.Fatalf("Failed to create request: %v", err)
+				}
+
+				resp, err := http.DefaultClient.Do(req)
+				if err != nil {
+					t.Fatalf("Failed to join room: %v", err)
+				}
+				defer resp.Body.Close()
+
+				if i == maxClients+1 {
+					if resp.StatusCode != http.StatusForbidden {
+						t.Errorf("Expected status Forbidden when room is full, got %v", resp.StatusCode)
+					}
+				} else {
+					if resp.StatusCode != http.StatusOK {
+						t.Errorf("Expected status OK, got %v", resp.StatusCode)
+					}
+				}
+			}
+		})
+
+		// Тест 5: Удаление комнаты
 		t.Run("Delete Room", func(t *testing.T) {
 			// Сначала пробуем удалить комнату с неправильным IP
 			req, err := http.NewRequest(http.MethodDelete, fmt.Sprintf("%s/v1/rooms?room_id=%s", ts.URL, roomID), nil)
@@ -157,7 +201,7 @@ func TestRoomAPI(t *testing.T) {
 		})
 	})
 
-	// Тест 5: Получение списка всех комнат
+	// Тест 6: Получение списка всех комнат
 	t.Run("Get All Rooms", func(t *testing.T) {
 		// Очищаем все существующие комнаты
 		server.mu.Lock()
@@ -189,6 +233,13 @@ func TestRoomAPI(t *testing.T) {
 
 		if len(rooms) != 3 {
 			t.Errorf("Expected 3 rooms, got %d", len(rooms))
+		}
+
+		// Проверяем, что в каждой комнате хост добавлен в список клиентов
+		for _, room := range rooms {
+			if len(room.Clients) != 1 || room.Clients[0] != room.Host {
+				t.Errorf("Expected host %s in clients list for room %s, got %v", room.Host, room.ID, room.Clients)
+			}
 		}
 	})
 }

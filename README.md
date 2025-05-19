@@ -98,7 +98,6 @@
 ```bash
 go test -v
 ```
-
 Тесты покрывают:
 - создание комнаты
 - просмотр комнаты
@@ -116,3 +115,4 @@ go test -v
 **Автор:**
 - Telegram: @dimoha_zadira
 - GitHub: https://github.com/dimoha-zadira
+
