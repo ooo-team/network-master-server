@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"flag"
 	"fmt"
 	"log"
 	"net"
@@ -96,21 +97,21 @@ func (s *Server) joinRoom(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Проверяем, не является ли клиент уже хостом
-	if clientIP == room.Host {
-		s.mu.Unlock()
-		http.Error(w, "Host is already in the room", http.StatusBadRequest)
-		return
-	}
+	// // Проверяем, не является ли клиент уже хостом
+	// if clientIP == room.Host {
+	// 	s.mu.Unlock()
+	// 	http.Error(w, "Host is already in the room", http.StatusBadRequest)
+	// 	return
+	// }
 
-	// Проверяем, не находится ли клиент уже в комнате
-	for _, existingClient := range room.Clients {
-		if existingClient == clientIP {
-			s.mu.Unlock()
-			http.Error(w, "Client is already in the room", http.StatusBadRequest)
-			return
-		}
-	}
+	// // Проверяем, не находится ли клиент уже в комнате
+	// for _, existingClient := range room.Clients {
+	// 	if existingClient == clientIP {
+	// 		s.mu.Unlock()
+	// 		http.Error(w, "Client is already in the room", http.StatusBadRequest)
+	// 		return
+	// 	}
+	// }
 
 	if len(room.Clients) >= room.MaxClients {
 		s.mu.Unlock()
@@ -197,6 +198,9 @@ func (s *Server) getRooms(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
+	port := flag.Int("port", 5312, "Port to run the server on")
+	flag.Parse()
+
 	server := NewServer()
 
 	http.HandleFunc("/v1/rooms", func(w http.ResponseWriter, r *http.Request) {
@@ -214,8 +218,9 @@ func main() {
 		}
 	})
 
-	log.Println("Server starting on :8080")
-	if err := http.ListenAndServe(":8080", nil); err != nil {
+	addr := fmt.Sprintf(":%d", *port)
+	log.Printf("Server starting on %s", addr)
+	if err := http.ListenAndServe(addr, nil); err != nil {
 		log.Fatal(err)
 	}
 }
