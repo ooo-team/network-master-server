@@ -24,6 +24,15 @@ type Server struct {
 	mu    sync.RWMutex
 }
 
+// Глобальная переменная-функция для получения IP клиента
+var getClientIP = func(r *http.Request) string {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return ""
+	}
+	return host
+}
+
 func NewServer() *Server {
 	return &Server{
 		rooms: make(map[string]*Room),
@@ -36,9 +45,9 @@ func (s *Server) createRoom(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	host := r.URL.Query().Get("host")
+	host := getClientIP(r)
 	if host == "" {
-		http.Error(w, "Host parameter is required", http.StatusBadRequest)
+		http.Error(w, "Invalid remote address", http.StatusBadRequest)
 		return
 	}
 
@@ -83,9 +92,9 @@ func (s *Server) joinRoom(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	clientIP := r.URL.Query().Get("client")
+	clientIP := getClientIP(r)
 	if clientIP == "" {
-		http.Error(w, "Client parameter is required", http.StatusBadRequest)
+		http.Error(w, "Invalid remote address", http.StatusBadRequest)
 		return
 	}
 
@@ -97,22 +106,6 @@ func (s *Server) joinRoom(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// // Проверяем, не является ли клиент уже хостом
-	// if clientIP == room.Host {
-	// 	s.mu.Unlock()
-	// 	http.Error(w, "Host is already in the room", http.StatusBadRequest)
-	// 	return
-	// }
-
-	// // Проверяем, не находится ли клиент уже в комнате
-	// for _, existingClient := range room.Clients {
-	// 	if existingClient == clientIP {
-	// 		s.mu.Unlock()
-	// 		http.Error(w, "Client is already in the room", http.StatusBadRequest)
-	// 		return
-	// 	}
-	// }
-
 	if len(room.Clients) >= room.MaxClients {
 		s.mu.Unlock()
 		http.Error(w, "Room is full", http.StatusForbidden)
@@ -120,6 +113,11 @@ func (s *Server) joinRoom(w http.ResponseWriter, r *http.Request) {
 	}
 
 	room.Clients = append(room.Clients, clientIP)
+
+	// Логируем информацию о комнате после подключения нового клиента
+	roomJSON, _ := json.MarshalIndent(room, "", "  ")
+	log.Printf("Client %s joined room %s. Room state:\n%s", clientIP, roomID, string(roomJSON))
+
 	s.mu.Unlock()
 
 	w.WriteHeader(http.StatusOK)
@@ -137,14 +135,10 @@ func (s *Server) deleteRoom(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	clientIP := r.Header.Get("X-Real-IP")
+	clientIP := getClientIP(r)
 	if clientIP == "" {
-		host, _, err := net.SplitHostPort(r.RemoteAddr)
-		if err != nil {
-			http.Error(w, "Invalid remote address", http.StatusBadRequest)
-			return
-		}
-		clientIP = host
+		http.Error(w, "Invalid remote address", http.StatusBadRequest)
+		return
 	}
 
 	s.mu.Lock()

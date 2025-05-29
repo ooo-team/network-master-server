@@ -3,12 +3,29 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 )
 
 func TestRoomAPI(t *testing.T) {
+	// Сохраняем оригинальную функцию и подменяем на тестовую
+	origGetClientIP := getClientIP
+	getClientIP = func(r *http.Request) string {
+		// Сначала проверяем тестовый заголовок
+		if ip := r.Header.Get("X-Test-Remote-Addr"); ip != "" {
+			return ip
+		}
+		// Если заголовка нет, берем из RemoteAddr
+		host, _, err := net.SplitHostPort(r.RemoteAddr)
+		if err != nil {
+			return ""
+		}
+		return host
+	}
+	defer func() { getClientIP = origGetClientIP }()
+
 	server := NewServer()
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.Method {
@@ -26,7 +43,13 @@ func TestRoomAPI(t *testing.T) {
 
 	// Тест 1: Создание комнаты
 	t.Run("Create Room", func(t *testing.T) {
-		resp, err := http.Post(fmt.Sprintf("%s/v1/rooms?host=192.168.1.1&max_clients=4", ts.URL), "", nil)
+		req, err := http.NewRequest(http.MethodPost, fmt.Sprintf("%s/v1/rooms?max_clients=4", ts.URL), nil)
+		if err != nil {
+			t.Fatalf("Failed to create request: %v", err)
+		}
+		req.Header.Set("X-Test-Remote-Addr", "192.168.1.1")
+
+		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
 			t.Fatalf("Failed to create room: %v", err)
 		}
@@ -48,7 +71,13 @@ func TestRoomAPI(t *testing.T) {
 
 		// Тест 2: Получение информации о комнате
 		t.Run("Get Room", func(t *testing.T) {
-			resp, err := http.Get(fmt.Sprintf("%s/v1/rooms?room_id=%s", ts.URL, roomID))
+			req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/v1/rooms?room_id=%s", ts.URL, roomID), nil)
+			if err != nil {
+				t.Fatalf("Failed to create request: %v", err)
+			}
+			req.Header.Set("X-Test-Remote-Addr", "192.168.1.1")
+
+			resp, err := http.DefaultClient.Do(req)
 			if err != nil {
 				t.Fatalf("Failed to get room: %v", err)
 			}
@@ -80,10 +109,11 @@ func TestRoomAPI(t *testing.T) {
 
 		// Тест 3: Присоединение клиента к комнате
 		t.Run("Join Room", func(t *testing.T) {
-			req, err := http.NewRequest(http.MethodPut, fmt.Sprintf("%s/v1/rooms?room_id=%s&client=192.168.1.2", ts.URL, roomID), nil)
+			req, err := http.NewRequest(http.MethodPut, fmt.Sprintf("%s/v1/rooms?room_id=%s", ts.URL, roomID), nil)
 			if err != nil {
 				t.Fatalf("Failed to create request: %v", err)
 			}
+			req.Header.Set("X-Test-Remote-Addr", "192.168.1.2")
 
 			resp, err := http.DefaultClient.Do(req)
 			if err != nil {
@@ -96,7 +126,13 @@ func TestRoomAPI(t *testing.T) {
 			}
 
 			// Проверяем, что клиент добавился
-			resp, err = http.Get(fmt.Sprintf("%s/v1/rooms?room_id=%s", ts.URL, roomID))
+			req, err = http.NewRequest(http.MethodGet, fmt.Sprintf("%s/v1/rooms?room_id=%s", ts.URL, roomID), nil)
+			if err != nil {
+				t.Fatalf("Failed to create request: %v", err)
+			}
+			req.Header.Set("X-Test-Remote-Addr", "192.168.1.1")
+
+			resp, err = http.DefaultClient.Do(req)
 			if err != nil {
 				t.Fatalf("Failed to get room: %v", err)
 			}
@@ -129,10 +165,11 @@ func TestRoomAPI(t *testing.T) {
 			// Уже есть 2 клиента (host и 192.168.1.2), добавим ещё (maxClients-1) и попробуем добавить ещё одного сверх лимита
 			for i := 3; i <= maxClients+1; i++ {
 				ip := fmt.Sprintf("192.168.1.%d", i)
-				req, err := http.NewRequest(http.MethodPut, fmt.Sprintf("%s/v1/rooms?room_id=%s&client=%s", ts.URL, roomID, ip), nil)
+				req, err := http.NewRequest(http.MethodPut, fmt.Sprintf("%s/v1/rooms?room_id=%s", ts.URL, roomID), nil)
 				if err != nil {
 					t.Fatalf("Failed to create request: %v", err)
 				}
+				req.Header.Set("X-Test-Remote-Addr", ip)
 
 				resp, err := http.DefaultClient.Do(req)
 				if err != nil {
@@ -159,7 +196,7 @@ func TestRoomAPI(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Failed to create request: %v", err)
 			}
-			req.Header.Set("X-Real-IP", "192.168.1.2") // Неправильный IP
+			req.Header.Set("X-Test-Remote-Addr", "192.168.1.2") // Неправильный IP
 
 			resp, err := http.DefaultClient.Do(req)
 			if err != nil {
@@ -176,7 +213,7 @@ func TestRoomAPI(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Failed to create request: %v", err)
 			}
-			req.Header.Set("X-Real-IP", "192.168.1.1") // Правильный IP
+			req.Header.Set("X-Test-Remote-Addr", "192.168.1.1") // Правильный IP
 
 			resp, err = http.DefaultClient.Do(req)
 			if err != nil {
@@ -189,7 +226,13 @@ func TestRoomAPI(t *testing.T) {
 			}
 
 			// Проверяем, что комната удалена
-			resp, err = http.Get(fmt.Sprintf("%s/v1/rooms?room_id=%s", ts.URL, roomID))
+			req, err = http.NewRequest(http.MethodGet, fmt.Sprintf("%s/v1/rooms?room_id=%s", ts.URL, roomID), nil)
+			if err != nil {
+				t.Fatalf("Failed to create request: %v", err)
+			}
+			req.Header.Set("X-Test-Remote-Addr", "192.168.1.1")
+
+			resp, err = http.DefaultClient.Do(req)
 			if err != nil {
 				t.Fatalf("Failed to get room: %v", err)
 			}
@@ -210,13 +253,26 @@ func TestRoomAPI(t *testing.T) {
 
 		// Создаем несколько комнат
 		for i := 0; i < 3; i++ {
-			_, err := http.Post(fmt.Sprintf("%s/v1/rooms?host=192.168.1.%d&max_clients=4", ts.URL, i+1), "", nil)
+			req, err := http.NewRequest(http.MethodPost, fmt.Sprintf("%s/v1/rooms?max_clients=4", ts.URL), nil)
+			if err != nil {
+				t.Fatalf("Failed to create request: %v", err)
+			}
+			req.Header.Set("X-Test-Remote-Addr", fmt.Sprintf("192.168.1.%d", i+1))
+
+			resp, err := http.DefaultClient.Do(req)
 			if err != nil {
 				t.Fatalf("Failed to create room: %v", err)
 			}
+			resp.Body.Close()
 		}
 
-		resp, err := http.Get(fmt.Sprintf("%s/v1/rooms", ts.URL))
+		req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/v1/rooms", ts.URL), nil)
+		if err != nil {
+			t.Fatalf("Failed to create request: %v", err)
+		}
+		req.Header.Set("X-Test-Remote-Addr", "192.168.1.1")
+
+		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
 			t.Fatalf("Failed to get rooms: %v", err)
 		}
