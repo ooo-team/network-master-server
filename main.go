@@ -47,7 +47,7 @@ func main() {
 
 	// Если publicIP не указан, пробуем резолвить домен
 	if len(*publicIP) == 0 {
-		ip, err := resolveDomainToIP("nms.savitskiy.dev")
+		ip, err := resolveDomainToIP("nms.savitsky.dev")
 		if err != nil {
 			log.Fatalf("Failed to resolve domain: %s", err)
 		}
