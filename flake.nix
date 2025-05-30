@@ -19,7 +19,7 @@
           pname = "network-master-server";
           version = "0.0.0";
           src = ./.;
-          vendorHash = "sha256-mGKxBRU5TPgdmiSx0DHEd0Ys8gsVD/YdBfbDdSVpC3U=";
+          vendorHash = "sha256-IZHfSi/vU4Kr2XYd9DKINsyF5hMw+xKZWF8jAmzjKgk=";
           meta.mainProgram = "network-master-server";
         };
       };

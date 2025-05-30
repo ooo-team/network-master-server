@@ -30,6 +30,15 @@ in
       type = lib.types.port;
       default = 5312;
     };
+
+    users = lib.mkOption {
+      type = lib.types.str;
+    };
+
+    realm = lib.mkOption {
+      type = lib.types.str;
+      default = "game-realm";
+    };
   };
 
   config = lib.mkIf cfg.enable {
@@ -51,7 +60,12 @@ in
       serviceConfig = {
         User = cfg.user;
         Group = cfg.group;
-        ExecStart = "${lib.getExe cfg.package} -port ${toString cfg.port}";
+        ExecStart = ''
+          ${lib.getExe cfg.package} \
+            -users ${cfg.users} \
+            -port ${toString cfg.port} \
+            -realm ${cfg.realm}
+        '';
       };
     };
   };
