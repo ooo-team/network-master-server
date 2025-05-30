@@ -17,27 +17,6 @@ import (
 	"github.com/pion/turn/v4"
 )
 
-func resolveDomainToIP(domain string) (string, error) {
-	ips, err := net.LookupIP(domain)
-	if err != nil {
-		return "", err
-	}
-
-	// Ищем первый IPv4 адрес
-	for _, ip := range ips {
-		if ipv4 := ip.To4(); ipv4 != nil {
-			return ipv4.String(), nil
-		}
-	}
-
-	// Если IPv4 не найден, возвращаем первый IPv6
-	if len(ips) > 0 {
-		return ips[0].String(), nil
-	}
-
-	return "", nil
-}
-
 func main() {
 	publicIP := flag.String("public-ip", "", "IP Address that TURN can be contacted by.")
 	port := flag.Int("port", 3478, "Listening port.")
@@ -45,22 +24,14 @@ func main() {
 	realm := flag.String("realm", "pion.ly", "Realm (defaults to \"pion.ly\")")
 	flag.Parse()
 
-	// Если publicIP не указан, пробуем резолвить домен
 	if len(*publicIP) == 0 {
-		ip, err := resolveDomainToIP("nms.savitsky.dev")
-		if err != nil {
-			log.Fatalf("Failed to resolve domain: %s", err)
-		}
-		if ip == "" {
-			log.Fatalf("No IP addresses found for domain")
-		}
-		*publicIP = ip
-		log.Printf("Resolved domain to IP: %s", *publicIP)
-	}
-
-	if len(*users) == 0 {
+		log.Fatalf("'public-ip' is required")
+	} else if len(*users) == 0 {
 		log.Fatalf("'users' is required")
 	}
+
+	log.Printf("Запуск TURN сервера на %s:%d", *publicIP, *port)
+	log.Printf("Используем realm: %s", *realm)
 
 	// Create a UDP listener to pass into pion/turn
 	// pion/turn itself doesn't allocate any UDP sockets, but lets the user pass them in
@@ -69,12 +40,14 @@ func main() {
 	if err != nil {
 		log.Panicf("Failed to create TURN server listener: %s", err)
 	}
+	log.Printf("UDP listener создан на 0.0.0.0:%d", *port)
 
 	// Cache -users flag for easy lookup later
 	// If passwords are stored they should be saved to your DB hashed using turn.GenerateAuthKey
 	usersMap := map[string][]byte{}
 	for _, kv := range regexp.MustCompile(`(\w+)=(\w+)`).FindAllStringSubmatch(*users, -1) {
 		usersMap[kv[1]] = turn.GenerateAuthKey(kv[1], *realm, kv[2])
+		log.Printf("Добавлен пользователь: %s", kv[1])
 	}
 
 	server, err := turn.NewServer(turn.ServerConfig{
@@ -83,10 +56,12 @@ func main() {
 		// This is called every time a user tries to authenticate with the TURN server
 		// Return the key for that user, or false when no user is found
 		AuthHandler: func(username string, realm string, srcAddr net.Addr) ([]byte, bool) { // nolint: revive
+			log.Printf("Попытка аутентификации: username=%s, realm=%s, src=%s", username, realm, srcAddr.String())
 			if key, ok := usersMap[username]; ok {
+				log.Printf("Аутентификация успешна для пользователя: %s", username)
 				return key, true
 			}
-
+			log.Printf("Аутентификация не удалась для пользователя: %s", username)
 			return nil, false
 		},
 		// PacketConnConfigs is a list of UDP Listeners and the configuration around them
@@ -106,12 +81,16 @@ func main() {
 		log.Panic(err)
 	}
 
+	log.Printf("TURN сервер запущен и готов к работе")
+
 	// Block until user sends SIGINT or SIGTERM
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
 	<-sigs
 
+	log.Printf("Получен сигнал завершения, закрываем сервер...")
 	if err = server.Close(); err != nil {
 		log.Panic(err)
 	}
+	log.Printf("Сервер успешно остановлен")
 }
