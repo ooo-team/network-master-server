@@ -1,269 +1,117 @@
+// SPDX-FileCopyrightText: 2023 The Pion community <https://pion.ly>
+// SPDX-License-Identifier: MIT
+
+// Package main implements a simple TURN server
 package main
 
 import (
-	"encoding/json"
 	"flag"
-	"fmt"
 	"log"
 	"net"
-	"net/http"
-	"strings"
-	"sync"
+	"os"
+	"os/signal"
+	"regexp"
+	"strconv"
+	"syscall"
 
-	"github.com/google/uuid"
+	"github.com/pion/turn/v4"
 )
 
-type Room struct {
-	ID         string   `json:"id"`
-	Host       string   `json:"host"`
-	MaxClients int      `json:"max_clients"`
-	Clients    []string `json:"clients"`
-}
-
-type Server struct {
-	rooms map[string]*Room
-	mu    sync.RWMutex
-}
-
-// Глобальная переменная-функция для получения IP клиента
-var getClientIP = func(r *http.Request) string {
-	// Сначала проверяем X-Real-IP
-	if ip := r.Header.Get("X-Real-IP"); ip != "" {
-		if parsedIP := net.ParseIP(ip); parsedIP != nil {
-			return parsedIP.String()
-		}
-	}
-
-	// Затем проверяем X-Forwarded-For
-	if forwardedFor := r.Header.Get("X-Forwarded-For"); forwardedFor != "" {
-		// Берем первый IP из списка (самый левый - это оригинальный клиент)
-		ips := strings.Split(forwardedFor, ",")
-		if len(ips) > 0 {
-			ip := strings.TrimSpace(ips[0])
-			if parsedIP := net.ParseIP(ip); parsedIP != nil {
-				return parsedIP.String()
-			}
-		}
-	}
-
-	// Если заголовков нет, берем из RemoteAddr
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
+func resolveDomainToIP(domain string) (string, error) {
+	ips, err := net.LookupIP(domain)
 	if err != nil {
-		return ""
+		return "", err
 	}
 
-	// Пробуем распарсить IP адрес
-	ip := net.ParseIP(host)
-	if ip == nil {
-		return ""
-	}
-
-	// Возвращаем IP в том формате, в котором он пришел
-	return ip.String()
-}
-
-func NewServer() *Server {
-	return &Server{
-		rooms: make(map[string]*Room),
-	}
-}
-
-func (s *Server) createRoom(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	host := getClientIP(r)
-	if host == "" {
-		http.Error(w, "Invalid remote address", http.StatusBadRequest)
-		return
-	}
-	log.Printf("Host pidr: %s", host)
-
-	maxClients := r.URL.Query().Get("max_clients")
-	if maxClients == "" {
-		http.Error(w, "Max clients parameter is required", http.StatusBadRequest)
-		return
-	}
-
-	var maxClientsInt int
-	if _, err := fmt.Sscanf(maxClients, "%d", &maxClientsInt); err != nil {
-		http.Error(w, "Invalid max_clients parameter", http.StatusBadRequest)
-		return
-	}
-
-	room := &Room{
-		ID:         uuid.New().String(),
-		Host:       host,
-		MaxClients: maxClientsInt,
-		Clients:    []string{host},
-	}
-
-	s.mu.Lock()
-	s.rooms[room.ID] = room
-	s.mu.Unlock()
-
-	log.Printf("Room created: %s", room.ID)
-
-	response := map[string]string{"room_id": room.ID}
-	responseJSON, _ := json.MarshalIndent(response, "", "  ")
-	log.Printf("createRoom response:\n%s", string(responseJSON))
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
-}
-
-func (s *Server) joinRoom(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPut {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	roomID := r.URL.Query().Get("room_id")
-	if roomID == "" {
-		http.Error(w, "Room ID parameter is required", http.StatusBadRequest)
-		return
-	}
-
-	clientIP := getClientIP(r)
-	if clientIP == "" {
-		http.Error(w, "Invalid remote address", http.StatusBadRequest)
-		return
-	}
-	log.Printf("Client IP (should be IPv4): %s", clientIP)
-
-	s.mu.Lock()
-	room, exists := s.rooms[roomID]
-	if !exists {
-		s.mu.Unlock()
-		http.Error(w, "Room not found", http.StatusNotFound)
-		return
-	}
-
-	if len(room.Clients) >= room.MaxClients {
-		s.mu.Unlock()
-		http.Error(w, "Room is full", http.StatusForbidden)
-		return
-	}
-
-	room.Clients = append(room.Clients, clientIP)
-
-	// Логируем информацию о комнате после подключения нового клиента
-	roomJSON, _ := json.MarshalIndent(room, "", "  ")
-	log.Printf("Client %s joined room %s. Room state:\n%s", clientIP, roomID, string(roomJSON))
-
-	response := map[string]string{"status": "joined", "room_id": roomID}
-	responseJSON, _ := json.MarshalIndent(response, "", "  ")
-	log.Printf("joinRoom response:\n%s", string(responseJSON))
-
-	s.mu.Unlock()
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
-}
-
-func (s *Server) deleteRoom(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodDelete {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	roomID := r.URL.Query().Get("room_id")
-	if roomID == "" {
-		http.Error(w, "Room ID parameter is required", http.StatusBadRequest)
-		return
-	}
-
-	clientIP := getClientIP(r)
-	if clientIP == "" {
-		http.Error(w, "Invalid remote address", http.StatusBadRequest)
-		return
-	}
-
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	room, exists := s.rooms[roomID]
-	if !exists {
-		http.Error(w, "Room not found", http.StatusNotFound)
-		return
-	}
-
-	if room.Host != clientIP {
-		http.Error(w, "Only room host can delete the room", http.StatusForbidden)
-		return
-	}
-
-	delete(s.rooms, roomID)
-
-	response := map[string]string{"status": "deleted", "room_id": roomID}
-	responseJSON, _ := json.MarshalIndent(response, "", "  ")
-	log.Printf("deleteRoom response:\n%s", string(responseJSON))
-
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
-}
-
-func (s *Server) getRooms(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodGet {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	roomID := r.URL.Query().Get("room_id")
-
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	var response interface{}
-	if roomID != "" {
-		room, exists := s.rooms[roomID]
-		if !exists {
-			http.Error(w, "Room not found", http.StatusNotFound)
-			return
+	// Ищем первый IPv4 адрес
+	for _, ip := range ips {
+		if ipv4 := ip.To4(); ipv4 != nil {
+			return ipv4.String(), nil
 		}
-		response = room
-	} else {
-		// Если room_id не указан, возвращаем список всех комнат
-		rooms := make([]*Room, 0, len(s.rooms))
-		for _, room := range s.rooms {
-			rooms = append(rooms, room)
-		}
-		response = rooms
 	}
 
-	// Логируем ответ перед отправкой
-	responseJSON, _ := json.MarshalIndent(response, "", "  ")
-	log.Printf("getRooms response:\n%s", string(responseJSON))
+	// Если IPv4 не найден, возвращаем первый IPv6
+	if len(ips) > 0 {
+		return ips[0].String(), nil
+	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	return "", nil
 }
 
 func main() {
-	port := flag.Int("port", 5312, "Port to run the server on")
+	publicIP := flag.String("public-ip", "", "IP Address that TURN can be contacted by.")
+	port := flag.Int("port", 3478, "Listening port.")
+	users := flag.String("users", "", "List of username and password (e.g. \"user=pass,user=pass\")")
+	realm := flag.String("realm", "pion.ly", "Realm (defaults to \"pion.ly\")")
 	flag.Parse()
 
-	server := NewServer()
-
-	http.HandleFunc("/v1/rooms", func(w http.ResponseWriter, r *http.Request) {
-		switch r.Method {
-		case http.MethodGet:
-			server.getRooms(w, r)
-		case http.MethodPost:
-			server.createRoom(w, r)
-		case http.MethodPut:
-			server.joinRoom(w, r)
-		case http.MethodDelete:
-			server.deleteRoom(w, r)
-		default:
-			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	// Если publicIP не указан, пробуем резолвить домен
+	if len(*publicIP) == 0 {
+		ip, err := resolveDomainToIP("nms.savitskiy.dev")
+		if err != nil {
+			log.Fatalf("Failed to resolve domain: %s", err)
 		}
-	})
+		if ip == "" {
+			log.Fatalf("No IP addresses found for domain")
+		}
+		*publicIP = ip
+		log.Printf("Resolved domain to IP: %s", *publicIP)
+	}
 
-	addr := fmt.Sprintf(":%d", *port)
-	log.Printf("Server starting on %s", addr)
-	if err := http.ListenAndServe(addr, nil); err != nil {
-		log.Fatal(err)
+	if len(*users) == 0 {
+		log.Fatalf("'users' is required")
+	}
+
+	// Create a UDP listener to pass into pion/turn
+	// pion/turn itself doesn't allocate any UDP sockets, but lets the user pass them in
+	// this allows us to add logging, storage or modify inbound/outbound traffic
+	udpListener, err := net.ListenPacket("udp4", "0.0.0.0:"+strconv.Itoa(*port))
+	if err != nil {
+		log.Panicf("Failed to create TURN server listener: %s", err)
+	}
+
+	// Cache -users flag for easy lookup later
+	// If passwords are stored they should be saved to your DB hashed using turn.GenerateAuthKey
+	usersMap := map[string][]byte{}
+	for _, kv := range regexp.MustCompile(`(\w+)=(\w+)`).FindAllStringSubmatch(*users, -1) {
+		usersMap[kv[1]] = turn.GenerateAuthKey(kv[1], *realm, kv[2])
+	}
+
+	server, err := turn.NewServer(turn.ServerConfig{
+		Realm: *realm,
+		// Set AuthHandler callback
+		// This is called every time a user tries to authenticate with the TURN server
+		// Return the key for that user, or false when no user is found
+		AuthHandler: func(username string, realm string, srcAddr net.Addr) ([]byte, bool) { // nolint: revive
+			if key, ok := usersMap[username]; ok {
+				return key, true
+			}
+
+			return nil, false
+		},
+		// PacketConnConfigs is a list of UDP Listeners and the configuration around them
+		PacketConnConfigs: []turn.PacketConnConfig{
+			{
+				PacketConn: udpListener,
+				RelayAddressGenerator: &turn.RelayAddressGeneratorStatic{
+					// Claim that we are listening on IP passed by user (This should be your Public IP)
+					RelayAddress: net.ParseIP(*publicIP),
+					// But actually be listening on every interface
+					Address: "0.0.0.0",
+				},
+			},
+		},
+	})
+	if err != nil {
+		log.Panic(err)
+	}
+
+	// Block until user sends SIGINT or SIGTERM
+	sigs := make(chan os.Signal, 1)
+	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
+	<-sigs
+
+	if err = server.Close(); err != nil {
+		log.Panic(err)
 	}
 }
