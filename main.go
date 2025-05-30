@@ -50,6 +50,7 @@ func (s *Server) createRoom(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Invalid remote address", http.StatusBadRequest)
 		return
 	}
+	log.Printf("Host pidr: %s", host)
 
 	maxClients := r.URL.Query().Get("max_clients")
 	if maxClients == "" {
@@ -76,8 +77,12 @@ func (s *Server) createRoom(w http.ResponseWriter, r *http.Request) {
 
 	log.Printf("Room created: %s", room.ID)
 
+	response := map[string]string{"room_id": room.ID}
+	responseJSON, _ := json.MarshalIndent(response, "", "  ")
+	log.Printf("createRoom response:\n%s", string(responseJSON))
+
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{"room_id": room.ID})
+	json.NewEncoder(w).Encode(response)
 }
 
 func (s *Server) joinRoom(w http.ResponseWriter, r *http.Request) {
@@ -97,6 +102,7 @@ func (s *Server) joinRoom(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Invalid remote address", http.StatusBadRequest)
 		return
 	}
+	log.Printf("Client IP (should be IPv4): %s", clientIP)
 
 	s.mu.Lock()
 	room, exists := s.rooms[roomID]
@@ -118,9 +124,14 @@ func (s *Server) joinRoom(w http.ResponseWriter, r *http.Request) {
 	roomJSON, _ := json.MarshalIndent(room, "", "  ")
 	log.Printf("Client %s joined room %s. Room state:\n%s", clientIP, roomID, string(roomJSON))
 
+	response := map[string]string{"status": "joined", "room_id": roomID}
+	responseJSON, _ := json.MarshalIndent(response, "", "  ")
+	log.Printf("joinRoom response:\n%s", string(responseJSON))
+
 	s.mu.Unlock()
 
-	w.WriteHeader(http.StatusOK)
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
 }
 
 func (s *Server) deleteRoom(w http.ResponseWriter, r *http.Request) {
@@ -156,7 +167,12 @@ func (s *Server) deleteRoom(w http.ResponseWriter, r *http.Request) {
 
 	delete(s.rooms, roomID)
 
-	w.WriteHeader(http.StatusOK)
+	response := map[string]string{"status": "deleted", "room_id": roomID}
+	responseJSON, _ := json.MarshalIndent(response, "", "  ")
+	log.Printf("deleteRoom response:\n%s", string(responseJSON))
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
 }
 
 func (s *Server) getRooms(w http.ResponseWriter, r *http.Request) {
@@ -170,25 +186,29 @@ func (s *Server) getRooms(w http.ResponseWriter, r *http.Request) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
+	var response interface{}
 	if roomID != "" {
 		room, exists := s.rooms[roomID]
 		if !exists {
 			http.Error(w, "Room not found", http.StatusNotFound)
 			return
 		}
-		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(room)
-		return
+		response = room
+	} else {
+		// Если room_id не указан, возвращаем список всех комнат
+		rooms := make([]*Room, 0, len(s.rooms))
+		for _, room := range s.rooms {
+			rooms = append(rooms, room)
+		}
+		response = rooms
 	}
 
-	// Если room_id не указан, возвращаем список всех комнат
-	rooms := make([]*Room, 0, len(s.rooms))
-	for _, room := range s.rooms {
-		rooms = append(rooms, room)
-	}
+	// Логируем ответ перед отправкой
+	responseJSON, _ := json.MarshalIndent(response, "", "  ")
+	log.Printf("getRooms response:\n%s", string(responseJSON))
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(rooms)
+	json.NewEncoder(w).Encode(response)
 }
 
 func main() {
