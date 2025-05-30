@@ -17,6 +17,32 @@ import (
 	"github.com/pion/turn/v4"
 )
 
+func resolveDomainToIP(domain string) (string, error) {
+	log.Printf("Резолвим домен %s в IP...", domain)
+	ips, err := net.LookupIP(domain)
+	if err != nil {
+		return "", err
+	}
+
+	log.Printf("Найдены IP адреса: %v", ips)
+
+	// Ищем первый IPv4 адрес
+	for _, ip := range ips {
+		if ipv4 := ip.To4(); ipv4 != nil {
+			log.Printf("Выбран IPv4 адрес: %s", ipv4.String())
+			return ipv4.String(), nil
+		}
+	}
+
+	// Если IPv4 не найден, возвращаем первый IPv6
+	if len(ips) > 0 {
+		log.Printf("Выбран IPv6 адрес: %s", ips[0].String())
+		return ips[0].String(), nil
+	}
+
+	return "", nil
+}
+
 func main() {
 	publicIP := flag.String("public-ip", "", "IP Address that TURN can be contacted by.")
 	port := flag.Int("port", 3478, "Listening port.")
@@ -24,8 +50,17 @@ func main() {
 	realm := flag.String("realm", "pion.ly", "Realm (defaults to \"pion.ly\")")
 	flag.Parse()
 
+	// Если publicIP не указан, пробуем резолвить домен
 	if len(*publicIP) == 0 {
-		log.Fatalf("'public-ip' is required")
+		ip, err := resolveDomainToIP("nms.savitsky.dev")
+		if err != nil {
+			log.Fatalf("Ошибка резолва домена: %s", err)
+		}
+		if ip == "" {
+			log.Fatalf("Не найдены IP адреса для домена")
+		}
+		*publicIP = ip
+		log.Printf("Домен резолвлен в IP: %s", *publicIP)
 	} else if len(*users) == 0 {
 		log.Fatalf("'users' is required")
 	}
