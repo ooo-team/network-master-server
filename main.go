@@ -30,7 +30,20 @@ var getClientIP = func(r *http.Request) string {
 	if err != nil {
 		return ""
 	}
-	return host
+
+	// Пробуем распарсить IP адрес
+	ip := net.ParseIP(host)
+	if ip == nil {
+		return ""
+	}
+
+	// Проверяем, что это IPv4 адрес
+	if ip.To4() == nil {
+		log.Printf("IPv6 addresses are not supported: %s", ip.String())
+		return ""
+	}
+
+	return ip.String()
 }
 
 func NewServer() *Server {
