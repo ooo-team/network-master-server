@@ -37,12 +37,7 @@ var getClientIP = func(r *http.Request) string {
 		return ""
 	}
 
-	// Проверяем, что это IPv4 адрес
-	if ip.To4() == nil {
-		log.Printf("IPv6 addresses are not supported: %s", ip.String())
-		return ""
-	}
-
+	// Возвращаем IP в том формате, в котором он пришел
 	return ip.String()
 }
 

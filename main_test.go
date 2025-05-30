@@ -299,3 +299,139 @@ func TestRoomAPI(t *testing.T) {
 		}
 	})
 }
+
+func TestCreateRoom(t *testing.T) {
+	server := NewServer()
+
+	// Тест с IPv4
+	t.Run("IPv4", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodPost, "/v1/rooms?max_clients=4", nil)
+		req.RemoteAddr = "192.168.1.1:12345"
+		w := httptest.NewRecorder()
+
+		server.createRoom(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Errorf("Expected status code %d, got %d", http.StatusOK, w.Code)
+		}
+
+		var response map[string]string
+		if err := json.NewDecoder(w.Body).Decode(&response); err != nil {
+			t.Fatal(err)
+		}
+
+		if _, exists := response["room_id"]; !exists {
+			t.Error("Expected room_id in response")
+		}
+	})
+
+	// Тест с IPv6
+	t.Run("IPv6", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodPost, "/v1/rooms?max_clients=4", nil)
+		req.RemoteAddr = "[2001:db8::1]:12345"
+		w := httptest.NewRecorder()
+
+		server.createRoom(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Errorf("Expected status code %d, got %d", http.StatusOK, w.Code)
+		}
+
+		var response map[string]string
+		if err := json.NewDecoder(w.Body).Decode(&response); err != nil {
+			t.Fatal(err)
+		}
+
+		if _, exists := response["room_id"]; !exists {
+			t.Error("Expected room_id in response")
+		}
+	})
+}
+
+func TestJoinRoom(t *testing.T) {
+	server := NewServer()
+
+	// Создаем комнату с IPv4
+	req := httptest.NewRequest(http.MethodPost, "/v1/rooms?max_clients=4", nil)
+	req.RemoteAddr = "192.168.1.1:12345"
+	w := httptest.NewRecorder()
+	server.createRoom(w, req)
+
+	var response map[string]string
+	json.NewDecoder(w.Body).Decode(&response)
+	roomID := response["room_id"]
+
+	// Тест присоединения с IPv6
+	t.Run("Join with IPv6", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodPut, "/v1/rooms?room_id="+roomID, nil)
+		req.RemoteAddr = "[2001:db8::2]:12345"
+		w := httptest.NewRecorder()
+
+		server.joinRoom(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Errorf("Expected status code %d, got %d", http.StatusOK, w.Code)
+		}
+
+		var response map[string]string
+		if err := json.NewDecoder(w.Body).Decode(&response); err != nil {
+			t.Fatal(err)
+		}
+
+		if response["status"] != "joined" {
+			t.Error("Expected status 'joined' in response")
+		}
+	})
+}
+
+func TestGetRooms(t *testing.T) {
+	server := NewServer()
+
+	// Создаем комнату с IPv4
+	req1 := httptest.NewRequest(http.MethodPost, "/v1/rooms?max_clients=4", nil)
+	req1.RemoteAddr = "192.168.1.1:12345"
+	w1 := httptest.NewRecorder()
+	server.createRoom(w1, req1)
+
+	// Создаем комнату с IPv6
+	req2 := httptest.NewRequest(http.MethodPost, "/v1/rooms?max_clients=4", nil)
+	req2.RemoteAddr = "[2001:db8::1]:12345"
+	w2 := httptest.NewRecorder()
+	server.createRoom(w2, req2)
+
+	// Тест получения всех комнат
+	t.Run("Get all rooms", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/v1/rooms", nil)
+		w := httptest.NewRecorder()
+
+		server.getRooms(w, req)
+
+		if w.Code != http.StatusOK {
+			t.Errorf("Expected status code %d, got %d", http.StatusOK, w.Code)
+		}
+
+		var rooms []Room
+		if err := json.NewDecoder(w.Body).Decode(&rooms); err != nil {
+			t.Fatal(err)
+		}
+
+		if len(rooms) != 2 {
+			t.Errorf("Expected 2 rooms, got %d", len(rooms))
+		}
+
+		// Проверяем, что у нас есть и IPv4 и IPv6 хосты
+		hasIPv4 := false
+		hasIPv6 := false
+		for _, room := range rooms {
+			if net.ParseIP(room.Host).To4() != nil {
+				hasIPv4 = true
+			} else {
+				hasIPv6 = true
+			}
+		}
+
+		if !hasIPv4 || !hasIPv6 {
+			t.Error("Expected both IPv4 and IPv6 hosts in rooms")
+		}
+	})
+}
