@@ -435,3 +435,96 @@ func TestGetRooms(t *testing.T) {
 		}
 	})
 }
+
+func TestGetClientIP(t *testing.T) {
+	tests := []struct {
+		name          string
+		remoteAddr    string
+		realIP        string
+		forwardedFor  string
+		expectedIP    string
+		expectedError bool
+	}{
+		{
+			name:          "Direct IPv4",
+			remoteAddr:    "192.168.1.1:12345",
+			expectedIP:    "192.168.1.1",
+			expectedError: false,
+		},
+		{
+			name:          "Direct IPv6",
+			remoteAddr:    "[2001:db8::1]:12345",
+			expectedIP:    "2001:db8::1",
+			expectedError: false,
+		},
+		{
+			name:          "X-Real-IP IPv4",
+			remoteAddr:    "::1:12345",
+			realIP:        "192.168.1.1",
+			expectedIP:    "192.168.1.1",
+			expectedError: false,
+		},
+		{
+			name:          "X-Real-IP IPv6",
+			remoteAddr:    "::1:12345",
+			realIP:        "2001:db8::1",
+			expectedIP:    "2001:db8::1",
+			expectedError: false,
+		},
+		{
+			name:          "X-Forwarded-For IPv4",
+			remoteAddr:    "::1:12345",
+			forwardedFor:  "192.168.1.1, 10.0.0.1",
+			expectedIP:    "192.168.1.1",
+			expectedError: false,
+		},
+		{
+			name:          "X-Forwarded-For IPv6",
+			remoteAddr:    "::1:12345",
+			forwardedFor:  "2001:db8::1, 2001:db8::2",
+			expectedIP:    "2001:db8::1",
+			expectedError: false,
+		},
+		{
+			name:          "Invalid RemoteAddr",
+			remoteAddr:    "invalid",
+			expectedError: true,
+		},
+		{
+			name:          "Invalid X-Real-IP",
+			remoteAddr:    "::1:12345",
+			realIP:        "invalid",
+			expectedError: true,
+		},
+		{
+			name:          "Invalid X-Forwarded-For",
+			remoteAddr:    "::1:12345",
+			forwardedFor:  "invalid, 192.168.1.1",
+			expectedError: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/", nil)
+			req.RemoteAddr = tt.remoteAddr
+			if tt.realIP != "" {
+				req.Header.Set("X-Real-IP", tt.realIP)
+			}
+			if tt.forwardedFor != "" {
+				req.Header.Set("X-Forwarded-For", tt.forwardedFor)
+			}
+
+			ip := getClientIP(req)
+			if tt.expectedError {
+				if ip != "" {
+					t.Errorf("Expected empty IP for invalid input, got %s", ip)
+				}
+			} else {
+				if ip != tt.expectedIP {
+					t.Errorf("Expected IP %s, got %s", tt.expectedIP, ip)
+				}
+			}
+		})
+	}
+}

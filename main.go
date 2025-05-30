@@ -7,6 +7,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"strings"
 	"sync"
 
 	"github.com/google/uuid"
@@ -26,6 +27,26 @@ type Server struct {
 
 // Глобальная переменная-функция для получения IP клиента
 var getClientIP = func(r *http.Request) string {
+	// Сначала проверяем X-Real-IP
+	if ip := r.Header.Get("X-Real-IP"); ip != "" {
+		if parsedIP := net.ParseIP(ip); parsedIP != nil {
+			return parsedIP.String()
+		}
+	}
+
+	// Затем проверяем X-Forwarded-For
+	if forwardedFor := r.Header.Get("X-Forwarded-For"); forwardedFor != "" {
+		// Берем первый IP из списка (самый левый - это оригинальный клиент)
+		ips := strings.Split(forwardedFor, ",")
+		if len(ips) > 0 {
+			ip := strings.TrimSpace(ips[0])
+			if parsedIP := net.ParseIP(ip); parsedIP != nil {
+				return parsedIP.String()
+			}
+		}
+	}
+
+	// Если заголовков нет, берем из RemoteAddr
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
 		return ""
