@@ -1,0 +1,200 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebSocket Signaling Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .container {
+            display: flex;
+            gap: 20px;
+        }
+        .panel {
+            flex: 1;
+            border: 1px solid #ccc;
+            padding: 15px;
+            border-radius: 5px;
+        }
+        .log {
+            background: #f5f5f5;
+            padding: 10px;
+            height: 300px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 12px;
+        }
+        input, button {
+            margin: 5px 0;
+            padding: 5px;
+        }
+        button {
+            background: #007bff;
+            color: white;
+            border: none;
+            padding: 8px 15px;
+            border-radius: 3px;
+            cursor: pointer;
+        }
+        button:hover {
+            background: #0056b3;
+        }
+        .connected {
+            background: #28a745;
+        }
+        .disconnected {
+            background: #dc3545;
+        }
+    </style>
+</head>
+<body>
+    <h1>WebSocket Signaling Server Test</h1>
+    
+    <div class="container">
+        <div class="panel">
+            <h3>Peer 1</h3>
+            <input type="text" id="peer1-id" placeholder="Peer ID" value="peer1">
+            <input type="text" id="room-code" placeholder="Room Code" value="test-room">
+            <br>
+            <button id="connect1" onclick="connectPeer(1)">Connect</button>
+            <button id="disconnect1" onclick="disconnectPeer(1)" disabled>Disconnect</button>
+            <br>
+            <button onclick="sendOffer(1)">Send Offer</button>
+            <button onclick="sendAnswer(1)">Send Answer</button>
+            <button onclick="sendIceCandidate(1)">Send ICE Candidate</button>
+            
+            <h4>Messages:</h4>
+            <div id="log1" class="log"></div>
+        </div>
+        
+        <div class="panel">
+            <h3>Peer 2</h3>
+            <input type="text" id="peer2-id" placeholder="Peer ID" value="peer2">
+            <br>
+            <button id="connect2" onclick="connectPeer(2)">Connect</button>
+            <button id="disconnect2" onclick="disconnectPeer(2)" disabled>Disconnect</button>
+            <br>
+            <button onclick="sendOffer(2)">Send Offer</button>
+            <button onclick="sendAnswer(2)">Send Answer</button>
+            <button onclick="sendIceCandidate(2)">Send ICE Candidate</button>
+            
+            <h4>Messages:</h4>
+            <div id="log2" class="log"></div>
+        </div>
+    </div>
+
+    <script>
+        let ws1 = null;
+        let ws2 = null;
+        
+        function log(peerNum, message) {
+            const logElement = document.getElementById(`log${peerNum}`);
+            const timestamp = new Date().toLocaleTimeString();
+            logElement.innerHTML += `[${timestamp}] ${message}<br>`;
+            logElement.scrollTop = logElement.scrollHeight;
+        }
+        
+        function connectPeer(peerNum) {
+            const peerId = document.getElementById(`peer${peerNum}-id`).value;
+            const roomCode = document.getElementById('room-code').value;
+            
+            if (!peerId || !roomCode) {
+                alert('Please enter Peer ID and Room Code');
+                return;
+            }
+            
+            const ws = new WebSocket(`ws://localhost:8080/ws?peer_id=${peerId}&room=${roomCode}`);
+            
+            ws.onopen = function() {
+                log(peerNum, `Connected to signaling server`);
+                document.getElementById(`connect${peerNum}`).disabled = true;
+                document.getElementById(`disconnect${peerNum}`).disabled = false;
+                document.getElementById(`connect${peerNum}`).className = 'connected';
+                
+                if (peerNum === 1) ws1 = ws;
+                else ws2 = ws;
+            };
+            
+            ws.onmessage = function(event) {
+                const message = JSON.parse(event.data);
+                log(peerNum, `Received: ${message.type} from ${message.from}`);
+                if (message.payload) {
+                    log(peerNum, `Payload: ${JSON.stringify(message.payload)}`);
+                }
+            };
+            
+            ws.onclose = function() {
+                log(peerNum, `Disconnected from signaling server`);
+                document.getElementById(`connect${peerNum}`).disabled = false;
+                document.getElementById(`disconnect${peerNum}`).disabled = true;
+                document.getElementById(`connect${peerNum}`).className = '';
+                
+                if (peerNum === 1) ws1 = null;
+                else ws2 = null;
+            };
+            
+            ws.onerror = function(error) {
+                log(peerNum, `Error: ${error}`);
+            };
+        }
+        
+        function disconnectPeer(peerNum) {
+            const ws = peerNum === 1 ? ws1 : ws2;
+            if (ws) {
+                ws.close();
+            }
+        }
+        
+        function sendMessage(peerNum, type, to, payload) {
+            const ws = peerNum === 1 ? ws1 : ws2;
+            const peerId = document.getElementById(`peer${peerNum}-id`).value;
+            
+            if (!ws) {
+                alert('Not connected');
+                return;
+            }
+            
+            const message = {
+                type: type,
+                from: peerId,
+                to: to,
+                payload: payload
+            };
+            
+            ws.send(JSON.stringify(message));
+            log(peerNum, `Sent: ${type} to ${to}`);
+        }
+        
+        function sendOffer(peerNum) {
+            const targetPeer = peerNum === 1 ? 'peer2' : 'peer1';
+            sendMessage(peerNum, 'offer', targetPeer, {
+                sdp: 'mock-sdp-offer',
+                timestamp: Date.now()
+            });
+        }
+        
+        function sendAnswer(peerNum) {
+            const targetPeer = peerNum === 1 ? 'peer2' : 'peer1';
+            sendMessage(peerNum, 'answer', targetPeer, {
+                sdp: 'mock-sdp-answer',
+                timestamp: Date.now()
+            });
+        }
+        
+        function sendIceCandidate(peerNum) {
+            const targetPeer = peerNum === 1 ? 'peer2' : 'peer1';
+            sendMessage(peerNum, 'ice_candidate', targetPeer, {
+                candidate: 'mock-ice-candidate',
+                sdpMLineIndex: 0,
+                sdpMid: '0',
+                timestamp: Date.now()
+            });
+        }
+    </script>
+</body>
+</html> 
