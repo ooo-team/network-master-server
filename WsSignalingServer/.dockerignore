@@ -1,0 +1,31 @@
+# Git
+.git
+.gitignore
+
+# Docker
+Dockerfile
+.dockerignore
+
+# Документация
+README.md
+*.md
+
+# Тестовые файлы
+test.html
+
+# Планы разработки
+plans.md
+
+# Временные файлы
+*.tmp
+*.log
+
+# IDE файлы
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS файлы
+.DS_Store
+Thumbs.db 
