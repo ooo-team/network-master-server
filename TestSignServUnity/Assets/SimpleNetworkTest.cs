@@ -2,12 +2,12 @@ using UnityEngine;
 using UnityEngine.UI;
 using System;
 using System.Collections;
-using System.Net.WebSockets;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Text;
 using System.Linq;
 using System.Collections.Generic;
+using NativeWebSocket;
 
 [System.Serializable]
 public class SignalMessage
@@ -52,9 +52,7 @@ public class SimpleNetworkTest : MonoBehaviour
     public string serverUrl = "ws://95.165.133.136:8080/ws";
     public string roomCode = "test_room";
     public string peerId = "unity_client";
-    private ClientWebSocket webSocket;
-    private CancellationTokenSource cancellationTokenSource;
-    private Task receiveTask;
+    private WebSocket webSocket;
     private bool isConnected = false;
     private System.Collections.Generic.List<string> connectedPeers = new System.Collections.Generic.List<string>();
     private readonly Queue<Action> mainThreadActions = new Queue<Action>();
@@ -88,8 +86,16 @@ public class SimpleNetworkTest : MonoBehaviour
         Log($"Server: {serverUrl}");
         Log($"Room: {roomCode}");
     }
+    
     void Update()
     {
+        // Dispatch incoming messages
+        if (webSocket != null)
+        {
+            webSocket.DispatchMessageQueue();
+        }
+        
+        // Execute main thread actions
         lock (mainThreadActions)
         {
             while (mainThreadActions.Count > 0)
@@ -99,7 +105,13 @@ public class SimpleNetworkTest : MonoBehaviour
         }
     }
 
-    
+    async void OnApplicationQuit()
+    {
+        if (webSocket != null)
+        {
+            await webSocket.Close();
+        }
+    }
     
     public void ToggleConnection()
     {
@@ -113,15 +125,125 @@ public class SimpleNetworkTest : MonoBehaviour
         }
     }
 
-    void Connect()
+    async void Connect()
     {
         if (isConnected) return;
         
         Log("Connecting...");
-        StartCoroutine(ConnectWebSocket());
+        
+        string fullUrl = $"{serverUrl}?peer_id={peerId}&room={roomCode}";
+        
+        webSocket = new WebSocket(fullUrl);
+        
+        webSocket.OnOpen += () =>
+        {
+            Log("Connected!");
+            isConnected = true;
+            RunOnMainThread(() =>
+            {
+                connectButton.GetComponentInChildren<Text>().text = "Send message";
+                connectButton.onClick.RemoveAllListeners();
+                connectButton.onClick.AddListener(SendTestMessage);
+            });
+        };
+        
+        webSocket.OnMessage += (bytes) =>
+        {
+            string message = Encoding.UTF8.GetString(bytes);
+            Log($"Received: {message}");
+            
+            // Try to parse as SignalMessage with proper payload structure
+            try
+            {
+                SignalMessageWithPayload signalMsg = JsonUtility.FromJson<SignalMessageWithPayload>(message);
+                Log($"Parsed message - Type: {signalMsg.type}, From: {signalMsg.from}, To: {signalMsg.to}");
+                if (!connectedPeers.Contains(signalMsg.from) && signalMsg.from != "" && signalMsg.from != peerId)
+                {
+                    connectedPeers.Add(signalMsg.from);
+                    Log($"📋 Added peer to list: {signalMsg.from}");
+                    Log($"📊 Total connected peers: {connectedPeers.Count}");
+                }
+                
+                // Handle different message types
+                switch (signalMsg.type)
+                {
+                    case "peer_joined":
+                        Log($"🎉 New peer joined: {signalMsg.from}");
+                        if (signalMsg.payload != null && !string.IsNullOrEmpty(signalMsg.payload.peer_id))
+                        {
+                            if (!connectedPeers.Contains(signalMsg.payload.peer_id))
+                            {
+                                connectedPeers.Add(signalMsg.payload.peer_id);
+                                Log($"📋 Added peer to list: {signalMsg.payload.peer_id}");
+                                Log($"📊 Total connected peers: {connectedPeers.Count}");
+                            }
+                        }
+                        else
+                        {
+                            Log($"⚠️ Invalid peer_joined payload");
+                        }
+                        break;
+                    case "peer_left":
+                        Log($"👋 Peer left: {signalMsg.from}");
+                        if (signalMsg.payload != null && !string.IsNullOrEmpty(signalMsg.payload.peer_id))
+                        {
+                            if (connectedPeers.Contains(signalMsg.payload.peer_id))
+                            {
+                                connectedPeers.Remove(signalMsg.payload.peer_id);
+                                Log($"📋 Removed peer from list: {signalMsg.payload.peer_id}");
+                                Log($"📊 Total connected peers: {connectedPeers.Count}");
+                            }
+                        }
+                        else
+                        {
+                            Log($"⚠️ Invalid peer_left payload");
+                        }
+                        break;
+                    case "offer":
+                        SignalMessageOffer offer = JsonUtility.FromJson<SignalMessageOffer>(message);
+                        RunOnMainThread(() =>
+                        {
+                            if (logText != null)
+                            {
+                                logText.text = offer.payload;
+                            }
+                        });
+                        break;
+                    case "answer":
+                    case "ice_candidate":
+                        Log($"📡 Signaling message: {signalMsg.type} from {signalMsg.from}");
+                        break;
+                    default:
+                        Log($"❓ Unknown message type: {signalMsg.type}");
+                        break;
+                }
+            }
+            catch (Exception parseEx)
+            {
+                Log($"Failed to parse message as SignalMessageWithPayload: {parseEx.Message}");
+                Log($"Raw message: {message}");
+            }
+        };
+        
+        webSocket.OnError += (e) =>
+        {
+            Log($"WebSocket Error: {e}");
+        };
+        
+        webSocket.OnClose += (e) =>
+        {
+            Log($"WebSocket closed: {e}");
+            isConnected = false;
+            RunOnMainThread(() =>
+            {
+                connectButton.GetComponentInChildren<Text>().text = "Connect";
+                connectButton.onClick.RemoveAllListeners();
+                connectButton.onClick.AddListener(ToggleConnection);
+            });
+        };
+        
+        await webSocket.Connect();
     }
-    
-
     
     void SendTestMessage()
     {
@@ -140,189 +262,15 @@ public class SimpleNetworkTest : MonoBehaviour
                 payload = $"Hello from {peerId} to {targetPeer} at {time}!"
             });
         }
-        
-        
     }
     
-    IEnumerator ConnectWebSocket()
-    {
-        webSocket = new ClientWebSocket();
-        cancellationTokenSource = new CancellationTokenSource();
-        
-        string fullUrl = $"{serverUrl}?peer_id={peerId}&room={roomCode}";
-        var connectTask = webSocket.ConnectAsync(new Uri(fullUrl), cancellationTokenSource.Token);
-        
-        while (!connectTask.IsCompleted)
-        {
-            yield return null;
-        }
-        
-        if (connectTask.Exception != null)
-        {
-            Log($"Connection failed: {connectTask.Exception.Message}");
-            yield break;
-        }
-        
-        Log("Connected!");
-        isConnected = true;
-        connectButton.GetComponentInChildren<Text>().text = "Send message";
-        connectButton.onClick.RemoveAllListeners();
-        connectButton.onClick.AddListener(SendTestMessage);
-        
-        // Start receiving messages
-        receiveTask = Task.Run(() => ReceiveMessagesAsync(cancellationTokenSource.Token));
-
-    }
-    
-    void SendMessage(SignalMessage message)
+    async void SendMessage(SignalMessage message)
     {
         if (webSocket != null && isConnected)
         {
             string jsonMessage = JsonUtility.ToJson(message);
-            StartCoroutine(SendWebSocketMessage(jsonMessage));
-        }
-    }
-    
-    IEnumerator SendWebSocketMessage(string message)
-    {
-        if (webSocket != null && isConnected)
-        {
-            byte[] messageBytes = Encoding.UTF8.GetBytes(message);
-            var sendTask = webSocket.SendAsync(new ArraySegment<byte>(messageBytes), WebSocketMessageType.Text, true, cancellationTokenSource.Token);
-            
-            while (!sendTask.IsCompleted)
-            {
-                yield return null;
-            }
-            
-            try
-            {
-                if (sendTask.Exception != null)
-                {
-                    Log($"Send failed: {sendTask.Exception.Message}");
-                }
-                else
-                {
-                    Log($"Sent: {message}");
-                }
-            }
-            catch (Exception e)
-            {
-                Log($"Send error: {e.Message}");
-            }
-        }
-    }
-    
-    async Task ReceiveMessagesAsync(CancellationToken cancellationToken)
-    {
-        var buffer = new byte[4096];
-        
-        try
-        {
-            while (webSocket != null && webSocket.State == WebSocketState.Open && !cancellationToken.IsCancellationRequested)
-            {
-                var result = await webSocket.ReceiveAsync(new ArraySegment<byte>(buffer), cancellationToken);
-                
-                if (result.MessageType == WebSocketMessageType.Text)
-                {
-                    string message = Encoding.UTF8.GetString(buffer, 0, result.Count);
-                    Log($"Received: {message}");
-                    string messageText = $"{message}";
-                    
-                    // Try to parse as SignalMessage with proper payload structure
-                    try
-                    {
-                        SignalMessageWithPayload signalMsg = JsonUtility.FromJson<SignalMessageWithPayload>(message);
-                        Log($"Parsed message - Type: {signalMsg.type}, From: {signalMsg.from}, To: {signalMsg.to}");
-                        if (!connectedPeers.Contains(signalMsg.from) && signalMsg.from != "" && signalMsg.from != peerId)
-                        {
-                            connectedPeers.Add(signalMsg.from);
-                            Log($"📋 Added peer to list: {signalMsg.from}");
-                            Log($"📊 Total connected peers: {connectedPeers.Count}");
-                        }
-                        // Handle different message types
-                        switch (signalMsg.type)
-                        {
-                            
-                            case "peer_joined":
-                                Log($"🎉 New peer joined: {signalMsg.from}");
-                                if (signalMsg.payload != null && !string.IsNullOrEmpty(signalMsg.payload.peer_id))
-                                {
-                                    if (!connectedPeers.Contains(signalMsg.payload.peer_id))
-                                    {
-                                        connectedPeers.Add(signalMsg.payload.peer_id);
-                                        Log($"📋 Added peer to list: {signalMsg.payload.peer_id}");
-                                        Log($"📊 Total connected peers: {connectedPeers.Count}");
-                                    }
-                                }
-                                else
-                                {
-                                    Log($"⚠️ Invalid peer_joined payload");
-                                }
-                                break;
-                            case "peer_left":
-                                Log($"👋 Peer left: {signalMsg.from}");
-                                if (signalMsg.payload != null && !string.IsNullOrEmpty(signalMsg.payload.peer_id))
-                                {
-                                    if (connectedPeers.Contains(signalMsg.payload.peer_id))
-                                    {
-                                        connectedPeers.Remove(signalMsg.payload.peer_id);
-                                        Log($"📋 Removed peer from list: {signalMsg.payload.peer_id}");
-                                        Log($"📊 Total connected peers: {connectedPeers.Count}");
-                                    }
-                                }
-                                else
-                                {
-                                    Log($"⚠️ Invalid peer_left payload");
-                                }
-                                break;
-                            case "offer":
-                                SignalMessageOffer offer = JsonUtility.FromJson<SignalMessageOffer>(message);
-                                RunOnMainThread(() =>
-                                {
-                                    if (logText != null)
-                                    {
-                                        logText.text = offer.payload;
-                                    }
-                                });
-                                break;
-                            case "answer":
-                            case "ice_candidate":
-                                Log($"📡 Signaling message: {signalMsg.type} from {signalMsg.from}");
-                                break;
-                            default:
-                                Log($"❓ Unknown message type: {signalMsg.type}");
-                                break;
-                        }
-                    }
-                    catch (Exception parseEx)
-                    {
-                        Log($"Failed to parse message as SignalMessageWithPayload: {parseEx.Message}");
-                        Log($"Raw message: {message}");
-                    }
-                }
-                else if (result.MessageType == WebSocketMessageType.Close)
-                {
-                    Log("Server closed connection");
-                    break;
-                }
-            }
-        }
-        catch (OperationCanceledException)
-        {
-            Log("Receiving cancelled");
-        }
-        catch (Exception e)
-        {
-            Log($"Receive error: {e.Message}");
-        }
-        finally
-        {
-            if (isConnected)
-            {
-                isConnected = false;
-                Log("Connection lost");
-            }
+            await webSocket.SendText(jsonMessage);
+            Log($"Sent: {jsonMessage}");
         }
     }
     
@@ -333,7 +281,4 @@ public class SimpleNetworkTest : MonoBehaviour
         
         Debug.Log(logEntry);
     }
-    
-
-    
 } 
