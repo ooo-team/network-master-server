@@ -137,92 +137,92 @@ public class SimpleNetworkTest : MonoBehaviour
         
         webSocket.OnOpen += () =>
         {
-            Log("Connected!");
-            isConnected = true;
+        Log("Connected!");
+        isConnected = true;
             RunOnMainThread(() =>
             {
-                connectButton.GetComponentInChildren<Text>().text = "Send message";
-                connectButton.onClick.RemoveAllListeners();
-                connectButton.onClick.AddListener(SendTestMessage);
+        connectButton.GetComponentInChildren<Text>().text = "Send message";
+        connectButton.onClick.RemoveAllListeners();
+        connectButton.onClick.AddListener(SendTestMessage);
             });
         };
         
         webSocket.OnMessage += (bytes) =>
-        {
+                {
             string message = Encoding.UTF8.GetString(bytes);
-            Log($"Received: {message}");
-            
-            // Try to parse as SignalMessage with proper payload structure
-            try
-            {
-                SignalMessageWithPayload signalMsg = JsonUtility.FromJson<SignalMessageWithPayload>(message);
-                Log($"Parsed message - Type: {signalMsg.type}, From: {signalMsg.from}, To: {signalMsg.to}");
-                if (!connectedPeers.Contains(signalMsg.from) && signalMsg.from != "" && signalMsg.from != peerId)
-                {
-                    connectedPeers.Add(signalMsg.from);
-                    Log($"📋 Added peer to list: {signalMsg.from}");
-                    Log($"📊 Total connected peers: {connectedPeers.Count}");
-                }
+                    Log($"Received: {message}");
+                    
+                    // Try to parse as SignalMessage with proper payload structure
+                    try
+                    {
+                        SignalMessageWithPayload signalMsg = JsonUtility.FromJson<SignalMessageWithPayload>(message);
+                        Log($"Parsed message - Type: {signalMsg.type}, From: {signalMsg.from}, To: {signalMsg.to}");
+                        if (!connectedPeers.Contains(signalMsg.from) && signalMsg.from != "" && signalMsg.from != peerId)
+                        {
+                            connectedPeers.Add(signalMsg.from);
+                            Log($"📋 Added peer to list: {signalMsg.from}");
+                            Log($"📊 Total connected peers: {connectedPeers.Count}");
+                        }
                 
-                // Handle different message types
-                switch (signalMsg.type)
-                {
-                    case "peer_joined":
-                        Log($"🎉 New peer joined: {signalMsg.from}");
-                        if (signalMsg.payload != null && !string.IsNullOrEmpty(signalMsg.payload.peer_id))
+                        // Handle different message types
+                        switch (signalMsg.type)
                         {
-                            if (!connectedPeers.Contains(signalMsg.payload.peer_id))
-                            {
-                                connectedPeers.Add(signalMsg.payload.peer_id);
-                                Log($"📋 Added peer to list: {signalMsg.payload.peer_id}");
-                                Log($"📊 Total connected peers: {connectedPeers.Count}");
-                            }
+                            case "peer_joined":
+                                Log($"🎉 New peer joined: {signalMsg.from}");
+                                if (signalMsg.payload != null && !string.IsNullOrEmpty(signalMsg.payload.peer_id))
+                                {
+                                    if (!connectedPeers.Contains(signalMsg.payload.peer_id))
+                                    {
+                                        connectedPeers.Add(signalMsg.payload.peer_id);
+                                        Log($"📋 Added peer to list: {signalMsg.payload.peer_id}");
+                                        Log($"📊 Total connected peers: {connectedPeers.Count}");
+                                    }
+                                }
+                                else
+                                {
+                                    Log($"⚠️ Invalid peer_joined payload");
+                                }
+                                break;
+                            case "peer_left":
+                                Log($"👋 Peer left: {signalMsg.from}");
+                                if (signalMsg.payload != null && !string.IsNullOrEmpty(signalMsg.payload.peer_id))
+                                {
+                                    if (connectedPeers.Contains(signalMsg.payload.peer_id))
+                                    {
+                                        connectedPeers.Remove(signalMsg.payload.peer_id);
+                                        Log($"📋 Removed peer from list: {signalMsg.payload.peer_id}");
+                                        Log($"📊 Total connected peers: {connectedPeers.Count}");
+                                    }
+                                }
+                                else
+                                {
+                                    Log($"⚠️ Invalid peer_left payload");
+                                }
+                                break;
+                            case "offer":
+                                SignalMessageOffer offer = JsonUtility.FromJson<SignalMessageOffer>(message);
+                                RunOnMainThread(() =>
+                                {
+                                    if (logText != null)
+                                    {
+                                        logText.text = offer.payload;
+                                    }
+                                });
+                                break;
+                            case "answer":
+                            case "ice_candidate":
+                                Log($"📡 Signaling message: {signalMsg.type} from {signalMsg.from}");
+                                break;
+                            default:
+                                Log($"❓ Unknown message type: {signalMsg.type}");
+                                break;
                         }
-                        else
-                        {
-                            Log($"⚠️ Invalid peer_joined payload");
-                        }
-                        break;
-                    case "peer_left":
-                        Log($"👋 Peer left: {signalMsg.from}");
-                        if (signalMsg.payload != null && !string.IsNullOrEmpty(signalMsg.payload.peer_id))
-                        {
-                            if (connectedPeers.Contains(signalMsg.payload.peer_id))
-                            {
-                                connectedPeers.Remove(signalMsg.payload.peer_id);
-                                Log($"📋 Removed peer from list: {signalMsg.payload.peer_id}");
-                                Log($"📊 Total connected peers: {connectedPeers.Count}");
-                            }
-                        }
-                        else
-                        {
-                            Log($"⚠️ Invalid peer_left payload");
-                        }
-                        break;
-                    case "offer":
-                        SignalMessageOffer offer = JsonUtility.FromJson<SignalMessageOffer>(message);
-                        RunOnMainThread(() =>
-                        {
-                            if (logText != null)
-                            {
-                                logText.text = offer.payload;
-                            }
-                        });
-                        break;
-                    case "answer":
-                    case "ice_candidate":
-                        Log($"📡 Signaling message: {signalMsg.type} from {signalMsg.from}");
-                        break;
-                    default:
-                        Log($"❓ Unknown message type: {signalMsg.type}");
-                        break;
-                }
-            }
-            catch (Exception parseEx)
-            {
-                Log($"Failed to parse message as SignalMessageWithPayload: {parseEx.Message}");
-                Log($"Raw message: {message}");
-            }
+                    }
+                    catch (Exception parseEx)
+                    {
+                        Log($"Failed to parse message as SignalMessageWithPayload: {parseEx.Message}");
+                        Log($"Raw message: {message}");
+                    }
         };
         
         webSocket.OnError += (e) =>
@@ -231,7 +231,7 @@ public class SimpleNetworkTest : MonoBehaviour
         };
         
         webSocket.OnClose += (e) =>
-        {
+                {
             Log($"WebSocket closed: {e}");
             isConnected = false;
             RunOnMainThread(() =>
@@ -265,9 +265,9 @@ public class SimpleNetworkTest : MonoBehaviour
     }
     
     async void SendMessage(SignalMessage message)
-    {
-        if (webSocket != null && isConnected)
         {
+        if (webSocket != null && isConnected)
+            {
             string jsonMessage = JsonUtility.ToJson(message);
             await webSocket.SendText(jsonMessage);
             Log($"Sent: {jsonMessage}");

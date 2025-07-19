@@ -227,15 +227,15 @@
       "url": "https://packages.unity.com"
     },
     "com.unity.webrtc": {
-      "version": "git@github.com:Unity-Technologies/com.unity.webrtc.git",
+      "version": "3.0.0-pre.8",
       "depth": 0,
-      "source": "git",
+      "source": "registry",
       "dependencies": {
-        "com.unity.modules.jsonserialize": "1.0.0",
+        "com.unity.modules.audio": "1.0.0",
         "com.unity.editorcoroutines": "1.0.0",
-        "com.unity.modules.audio": "1.0.0"
+        "com.unity.modules.jsonserialize": "1.0.0"
       },
-      "hash": "5f873f2ac17f3514ffe8a8514e94bff5e93e3982"
+      "url": "https://packages.unity.com"
     },
     "com.unity.modules.accessibility": {
       "version": "1.0.0",
