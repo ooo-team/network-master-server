@@ -4,6 +4,7 @@ using System;
 using System.Collections.Generic;
 using System.Text;
 
+
 /// <summary>
 /// Клиент для подключения к signaling server'у через WebSocket
 /// Обрабатывает подключение к комнате и обмен сообщениями между peer'ами
@@ -15,42 +16,42 @@ public class SignalingClient : MonoBehaviour
     /// URL WebSocket signaling server'а
     /// </summary>
     public string serverUrl = "ws://95.165.133.136:8080/ws";
-    
+
     /// <summary>
     /// Название комнаты для подключения peer'ов
     /// </summary>
     public string roomCode = "test_room";
-    
+
     /// <summary>
     /// ID этого peer'а (генерируется автоматически)
     /// </summary>
     public string thisPeerID = "unity_client";
-    
+
     // WebSocket connection
     private WebSocket webSocket;
     private bool isConnected = false;
-    
+
     // Events
     /// <summary>
     /// Событие: новый peer присоединился к комнате
     /// </summary>
     public event Action<string> OnPeerJoined;
-    
+
     /// <summary>
     /// Событие: peer покинул комнату
     /// </summary>
     public event Action<string> OnPeerLeft;
-    
+
     /// <summary>
     /// Событие: получено WebRTC signaling сообщение (offer, answer, ice_candidate)
     /// </summary>
     public event Action<SignalingMessage> OnSignalingMessage;
-    
+
     /// <summary>
     /// Событие: подключение к signaling server'у установлено
     /// </summary>
     public event Action OnConnected;
-    
+
     // Properties
     public string PeerId => thisPeerID;
     public bool IsConnected => isConnected;
@@ -66,7 +67,7 @@ public class SignalingClient : MonoBehaviour
         thisPeerID = "unity_client_" + UnityEngine.Random.Range(1000, 9999);
         PeersInRoom.Add(thisPeerID);
     }
-    
+
     void Update()
     {
         // Dispatch WebSocket messages
@@ -75,7 +76,7 @@ public class SignalingClient : MonoBehaviour
             webSocket.DispatchMessageQueue();
         }
     }
-    
+
     async void OnApplicationQuit()
     {
         if (webSocket != null)
@@ -83,47 +84,47 @@ public class SignalingClient : MonoBehaviour
             await webSocket.Close();
         }
     }
-    
+
     /// <summary>
     /// Подключиться к signaling server'у
     /// </summary>
     public async void Connect()
     {
         if (isConnected) return;
-        
+
         Debug.Log("Connecting to signaling server...");
-        
+
         string fullUrl = $"{serverUrl}?peer_id={thisPeerID}&room={roomCode}";
         webSocket = new WebSocket(fullUrl);
-        
+
         webSocket.OnOpen += () =>
         {
             Debug.Log("Connected to signaling server");
             isConnected = true;
             OnConnected?.Invoke();
         };
-        
+
         webSocket.OnMessage += (bytes) =>
         {
             string message = Encoding.UTF8.GetString(bytes);
             HandleSignalingMessage(message);
         };
-        
+
         webSocket.OnError += (e) =>
         {
             Debug.LogError($"Signaling error: {e}");
         };
-        
+
         webSocket.OnClose += (e) =>
         {
             Debug.Log("Signaling connection closed");
             isConnected = false;
             PeersInRoom.Clear();
         };
-        
+
         await webSocket.Connect();
     }
-    
+
     /// <summary>
     /// Отключиться от signaling server'а
     /// </summary>
@@ -134,7 +135,7 @@ public class SignalingClient : MonoBehaviour
             await webSocket.Close();
         }
     }
-    
+
     /// <summary>
     /// Обработать входящее сообщение от signaling server'а
     /// </summary>
@@ -144,15 +145,15 @@ public class SignalingClient : MonoBehaviour
         {
             Debug.Log($"Received signaling message: {message}");
             SignalingMessage signalMsg = JsonUtility.FromJson<SignalingMessage>(message);
-            
+
             if (signalMsg == null)
             {
                 Debug.LogError("Failed to deserialize SignalingMessage - result is null");
                 return;
             }
-            
+
             Debug.Log($"Parsed message - Type: {signalMsg.type}, From: {signalMsg.from}, To: {signalMsg.to}, Payload: {signalMsg.payload}");
-            
+
             switch (signalMsg.type)
             {
                 case "peer_joined":
@@ -179,12 +180,19 @@ public class SignalingClient : MonoBehaviour
             Debug.LogError($"Failed to parse signaling message: {e.Message}");
         }
     }
-    
+
+    private class AllPeersPayload
+    {
+        public List<String> all_peers;
+        public String peer_id;
+    }
     /// <summary>
     /// Обработать присоединение нового peer'а
     /// </summary>
     private void HandlePeerJoined(SignalingMessage msg)
     {
+        AllPeersPayload allPeersPayload = JsonUtility.FromJson<AllPeersPayload>(msg.payload);
+        Debug.Log(allPeersPayload.all_peers);
         if (!PeersInRoom.Contains(msg.from) && msg.from != thisPeerID)
         {
             PeersInRoom.Add(msg.from);
@@ -192,7 +200,7 @@ public class SignalingClient : MonoBehaviour
             OnPeerJoined?.Invoke(msg.from);
         }
     }
-    
+
     /// <summary>
     /// Обработать отключение peer'а
     /// </summary>
@@ -205,7 +213,7 @@ public class SignalingClient : MonoBehaviour
             OnPeerLeft?.Invoke(msg.from);
         }
     }
-    
+
     /// <summary>
     /// Обработать состояние комнаты (список всех peer'ов в комнате)
     /// </summary>
@@ -233,7 +241,7 @@ public class SignalingClient : MonoBehaviour
             Debug.LogError($"Failed to parse room state: {e.Message}");
         }
     }
-    
+
     /// <summary>
     /// Отправить сообщение через signaling server
     /// </summary>
