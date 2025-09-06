@@ -29,7 +29,7 @@ public class SignalingClient : MonoBehaviour
     // WebSocket connection
     private WebSocket webSocket;
     private bool isConnected = false;
-    private List<string> connectedPeers = new List<string>();
+    private List<string> connectedPeers = new ();
     
     // Events
     /// <summary>
@@ -138,7 +138,16 @@ public class SignalingClient : MonoBehaviour
     {
         try
         {
+            Debug.Log($"Received signaling message: {message}");
             SignalingMessage signalMsg = JsonUtility.FromJson<SignalingMessage>(message);
+            
+            if (signalMsg == null)
+            {
+                Debug.LogError("Failed to deserialize SignalingMessage - result is null");
+                return;
+            }
+            
+            Debug.Log($"Parsed message - Type: {signalMsg.type}, From: {signalMsg.from}, To: {signalMsg.to}, Payload: {signalMsg.payload}");
             
             switch (signalMsg.type)
             {
@@ -201,9 +210,9 @@ public class SignalingClient : MonoBehaviour
         try
         {
             // payload должно содержать массив peer ID'ов
-            if (msg.payload is string payloadStr)
+            if (!string.IsNullOrEmpty(msg.payload))
             {
-                string[] peerIds = JsonUtility.FromJson<string[]>(payloadStr);
+                string[] peerIds = JsonUtility.FromJson<string[]>(msg.payload);
                 foreach (string peerId in peerIds)
                 {
                     if (peerId != peerIdPrefix && !connectedPeers.Contains(peerId))

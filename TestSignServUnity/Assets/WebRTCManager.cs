@@ -5,6 +5,9 @@ using System.Collections;
 using System.Collections.Generic;
 using System.Text;
 
+[RequireComponent(typeof(SignalingClient))]
+
+
 /// <summary>
 /// Менеджер WebRTC соединений
 /// Создает RTCPeerConnection, управляет SDP offer/answer и ICE candidates
@@ -15,7 +18,7 @@ public class WebRTCManager : MonoBehaviour
     /// <summary>
     /// Конфигурация WebRTC соединения (ICE серверы, политики и т.д.)
     /// </summary>
-    public RTCConfiguration rtcConfig = new RTCConfiguration{
+    public RTCConfiguration rtcConfig = new() {
         iceServers = new[]
         {
             new RTCIceServer { urls = new[] { "stun:stun.l.google.com:19302", "stun:stun1.l.google.com:19302" } },
@@ -91,21 +94,22 @@ public class WebRTCManager : MonoBehaviour
     /// </summary>
     private void CreateLocalPeerConnection()
     {
-        localPeer = new RTCPeerConnection(ref rtcConfig);
-        
-        localPeer.OnIceCandidate = candidate =>
+        localPeer = new RTCPeerConnection(ref rtcConfig)
         {
-            SendICECandidate(candidate);
-        };
-        
-        localPeer.OnIceConnectionChange = state =>
-        {
-            OnIceConnectionStateChanged?.Invoke(state);
-        };
-        
-        localPeer.OnConnectionStateChange = state =>
-        {
-            OnConnectionStateChanged?.Invoke(state);
+            OnIceCandidate = candidate =>
+            {
+                SendICECandidate(candidate);
+            },
+
+            OnIceConnectionChange = state =>
+                {
+                    OnIceConnectionStateChanged?.Invoke(state);
+                },
+
+            OnConnectionStateChange = state =>
+                {
+                    OnConnectionStateChanged?.Invoke(state);
+                }
         };
     }
 
@@ -114,21 +118,22 @@ public class WebRTCManager : MonoBehaviour
     /// </summary>
     private void CreateRemotePeerConnection()
     {
-        remotePeer = new RTCPeerConnection(ref rtcConfig);
-        
-        remotePeer.OnIceCandidate = candidate =>
+        remotePeer = new RTCPeerConnection(ref rtcConfig)
         {
-            SendICECandidate(candidate);
-        };
-        
-        remotePeer.OnDataChannel = channel =>
-        {
-            SetupDataChannel(channel);
-        };
-        
-        remotePeer.OnIceConnectionChange = state =>
-        {
-            OnIceConnectionStateChanged?.Invoke(state);
+            OnIceCandidate = candidate =>
+            {
+                SendICECandidate(candidate);
+            },
+
+            OnDataChannel = channel =>
+            {
+                SetupDataChannel(channel);
+            },
+
+            OnIceConnectionChange = state =>
+            {
+                OnIceConnectionStateChanged?.Invoke(state);
+            }
         };
     }
 
@@ -238,10 +243,19 @@ public class WebRTCManager : MonoBehaviour
             CreateRemotePeerConnection();
         }
 
+        // Проверяем что payload не null и не пустой
+        if (string.IsNullOrEmpty(message.payload))
+        {
+            Debug.LogError("HandleOffer: message.payload is null or empty");
+            yield break;
+        }
+
+        string sdpString = message.payload;
+
         var desc = new RTCSessionDescription
         {
             type = RTCSdpType.Offer,
-            sdp = message.payload.ToString()
+            sdp = sdpString
         };
 
         yield return remotePeer.SetRemoteDescription(ref desc);
@@ -273,10 +287,19 @@ public class WebRTCManager : MonoBehaviour
     {
         if (localPeer != null)
         {
+            // Проверяем что payload не null и не пустой
+            if (string.IsNullOrEmpty(message.payload))
+            {
+                Debug.LogError("HandleAnswer: message.payload is null or empty");
+                yield break;
+            }
+
+            string sdpString = message.payload;
+
             var desc = new RTCSessionDescription
             {
                 type = RTCSdpType.Answer,
-                sdp = message.payload.ToString()
+                sdp = sdpString
             };
 
             yield return localPeer.SetRemoteDescription(ref desc);
@@ -291,13 +314,20 @@ public class WebRTCManager : MonoBehaviour
         // В Unity WebRTC, ICE candidates обрабатываются автоматически
         // при установке remote description, поэтому можно пропустить
         // ручную обработку ICE candidates
-        Debug.Log($"Received ICE candidate: {message.payload}");
+        if (!string.IsNullOrEmpty(message.payload))
+        {
+            Debug.Log($"Received ICE candidate: {message.payload}");
+        }
+        else
+        {
+            Debug.LogWarning("Received ICE candidate with empty payload");
+        }
     }
 
     /// <summary>
     /// Отправить сообщение через DataChannel
     /// </summary>
-    public void SendMessage(string message)
+    public void SendMsg(string message)
     {
         if (dataChannel != null && dataChannel.ReadyState == RTCDataChannelState.Open)
         {

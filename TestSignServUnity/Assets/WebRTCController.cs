@@ -3,6 +3,9 @@ using UnityEngine.UI;
 using TMPro;
 using System.Collections.Generic;
 
+[RequireComponent(typeof(SignalingClient))]
+[RequireComponent(typeof(WebRTCManager))]
+
 /// <summary>
 /// Главный контроллер WebRTC системы
 /// Объединяет SignalingClient и WebRTCManager, управляет UI
@@ -64,7 +67,7 @@ public class WebRTCController : MonoBehaviour
     /// <summary>
     /// Список peer'ов в комнате
     /// </summary>
-    private List<string> peersInRoom = new List<string>();
+    private readonly List<string> peersInRoom = new ();
     
     /// <summary>
     /// ID текущего подключенного peer'а
@@ -74,7 +77,7 @@ public class WebRTCController : MonoBehaviour
     /// <summary>
     /// Сообщения чата
     /// </summary>
-    private List<string> chatMessages = new List<string>();
+    private readonly List<string> chatMessages = new ();
 
     void Start()
     {
@@ -179,7 +182,7 @@ public class WebRTCController : MonoBehaviour
             messageInput.text = "";
             
             // Отправить через WebRTC DataChannel
-            webRTCManager.SendMessage(message);
+            webRTCManager.SendMsg(message);
         }
     }
 
@@ -237,7 +240,6 @@ public class WebRTCController : MonoBehaviour
     {
         // Обновляем UI чтобы показать себя в списке peer'ов
         UpdatePeerList();
-        AddChatMessage("Connected to signaling server");
     }
 
     /// <summary>
@@ -298,10 +300,14 @@ public class WebRTCController : MonoBehaviour
     /// </summary>
     private void UpdatePeerList()
     {
-        if (peerListText == null) return;
+        if (peerListText == null)
+        {
+            Debug.LogError("peerListText not attached");
+            return;
+        }
         
         // Создаем полный список всех клиентов включая себя
-        List<string> allClients = new List<string>();
+        List<string> allClients = new();
         
         // Добавляем себя в начало списка с пометкой (Me)
         if (signalingClient != null && signalingClient.IsConnected)

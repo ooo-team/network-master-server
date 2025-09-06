@@ -26,8 +26,9 @@ public class SignalingMessage
     
     /// <summary>
     /// Полезная нагрузка сообщения (SDPPayload, ICECandidatePayload и т.д.)
+    /// Хранится как JSON string, соответствует json.RawMessage в Go server'е
     /// </summary>
-    public object payload;
+    public string payload;
 }
 
 /// <summary>
