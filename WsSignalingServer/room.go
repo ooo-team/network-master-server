@@ -54,7 +54,7 @@ func (rm *RoomManager) GetRoom(roomCode string) *Room {
 // AddPeerToRoom добавляет пира в комнату
 func (rm *RoomManager) AddPeerToRoom(roomCode string, peer *Peer) bool {
 	log.Printf("🏠 RoomManager: Adding peer %s to room %s", peer.ID, roomCode)
-	
+
 	room := rm.GetRoom(roomCode)
 	if room == nil {
 		log.Printf("🏗️  Room %s doesn't exist, creating new room", roomCode)
@@ -76,7 +76,7 @@ func (rm *RoomManager) AddPeerToRoom(roomCode string, peer *Peer) bool {
 // RemovePeerFromRoom удаляет пира из комнаты
 func (rm *RoomManager) RemovePeerFromRoom(roomCode string, peerID string) {
 	log.Printf("➖ RoomManager: Removing peer %s from room %s", peerID, roomCode)
-	
+
 	room := rm.GetRoom(roomCode)
 	if room == nil {
 		log.Printf("❌ Room %s not found, cannot remove peer %s", roomCode, peerID)
@@ -102,7 +102,7 @@ func (rm *RoomManager) RemovePeerFromRoom(roomCode string, peerID string) {
 // BroadcastToRoom отправляет сообщение всем пирам в комнате
 func (rm *RoomManager) BroadcastToRoom(roomCode string, message SignalMessage, excludePeerID string) {
 	log.Printf("📢 RoomManager: Broadcasting message to room %s (exclude: %s)", roomCode, excludePeerID)
-	
+
 	room := rm.GetRoom(roomCode)
 	if room == nil {
 		log.Printf("❌ Room %s not found, cannot broadcast", roomCode)
@@ -130,10 +130,32 @@ func (rm *RoomManager) BroadcastToRoom(roomCode string, message SignalMessage, e
 	log.Printf("📈 Broadcast completed: sent to %d/%d peers in room %s", sentCount, len(room.Peers), roomCode)
 }
 
+// GetPeersInRoom возвращает список ID всех пиров в комнате
+func (rm *RoomManager) GetPeersInRoom(roomCode string) []string {
+	log.Printf("📋 RoomManager: Getting peers list for room %s", roomCode)
+
+	room := rm.GetRoom(roomCode)
+	if room == nil {
+		log.Printf("❌ Room %s not found", roomCode)
+		return []string{}
+	}
+
+	room.Mutex.RLock()
+	defer room.Mutex.RUnlock()
+
+	peerIDs := make([]string, 0, len(room.Peers))
+	for peerID := range room.Peers {
+		peerIDs = append(peerIDs, peerID)
+	}
+
+	log.Printf("📋 Room %s has %d peers: %v", roomCode, len(peerIDs), peerIDs)
+	return peerIDs
+}
+
 // SendToPeer отправляет сообщение конкретному пиру
 func (rm *RoomManager) SendToPeer(peerID string, message SignalMessage) bool {
 	log.Printf("🎯 RoomManager: Looking for peer %s to send message", peerID)
-	
+
 	// Ищем пира во всех комнатах
 	rm.mutex.RLock()
 	defer rm.mutex.RUnlock()

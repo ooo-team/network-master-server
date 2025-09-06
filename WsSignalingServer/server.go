@@ -34,7 +34,7 @@ func (s *SignalingServer) handleWebSocket(w http.ResponseWriter, r *http.Request
 	log.Printf("Remote address: %s", r.RemoteAddr)
 	log.Printf("User agent: %s", r.UserAgent())
 	log.Printf("Headers: %v", r.Header)
-	
+
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Printf("❌ WebSocket upgrade failed: %v", err)
@@ -71,17 +71,32 @@ func (s *SignalingServer) handleWebSocket(w http.ResponseWriter, r *http.Request
 	// Добавляем пира в менеджер и комнату
 	log.Printf("➕ Adding peer %s to peer manager", peerID)
 	s.peerManager.AddPeer(peer)
-	
+
 	log.Printf("➕ Adding peer %s to room %s", peerID, roomCode)
 	s.roomManager.AddPeerToRoom(roomCode, peer)
 
+	// Получаем список всех пиров в комнате
+	allPeersInRoom := s.roomManager.GetPeersInRoom(roomCode)
+	log.Printf("📋 Got %d peers in room %s: %v", len(allPeersInRoom), roomCode, allPeersInRoom)
+
+	// Создаем payload с информацией о новом пире и списком всех пиров
+	payloadData := map[string]interface{}{
+		"peer_id":   peerID,
+		"all_peers": allPeersInRoom,
+	}
+	payloadJSON, err := json.Marshal(payloadData)
+	if err != nil {
+		log.Printf("❌ Error marshaling peer_joined payload: %v", err)
+		payloadJSON = json.RawMessage(`{"peer_id": "` + peerID + `", "all_peers": []}`)
+	}
+
 	// Уведомляем других пиров в комнате о новом участнике
-	log.Printf("📢 Broadcasting peer_joined message for %s to room %s", peerID, roomCode)
+	log.Printf("📢 Broadcasting peer_joined message for %s to room %s with all peers list", peerID, roomCode)
 	s.roomManager.BroadcastToRoom(roomCode, SignalMessage{
 		Type:    "peer_joined",
 		From:    peerID,
 		To:      "",
-		Payload: json.RawMessage(`{"peer_id": "` + peerID + `"}`),
+		Payload: json.RawMessage(payloadJSON),
 	}, peerID)
 
 	log.Printf("🔄 Starting message processing loop for peer %s", peerID)
@@ -94,7 +109,7 @@ func (s *SignalingServer) handleWebSocket(w http.ResponseWriter, r *http.Request
 		}
 
 		log.Printf("📨 Received message from %s: type=%s, to=%s, payload=%s", peerID, msg.Type, msg.To, string(msg.Payload))
-		
+
 		// Обрабатываем сообщение
 		s.handleMessage(peer, msg)
 	}
