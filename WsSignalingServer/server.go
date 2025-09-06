@@ -85,9 +85,12 @@ func (s *SignalingServer) handleWebSocket(w http.ResponseWriter, r *http.Request
 		"all_peers": allPeersInRoom,
 	}
 	payloadJSON, err := json.Marshal(payloadData)
+	var payloadString string
 	if err != nil {
 		log.Printf("❌ Error marshaling peer_joined payload: %v", err)
-		payloadJSON = json.RawMessage(`{"peer_id": "` + peerID + `", "all_peers": []}`)
+		payloadString = `{"peer_id": "` + peerID + `", "all_peers": []}`
+	} else {
+		payloadString = string(payloadJSON)
 	}
 
 	// Уведомляем других пиров в комнате о новом участнике
@@ -96,8 +99,8 @@ func (s *SignalingServer) handleWebSocket(w http.ResponseWriter, r *http.Request
 		Type:    "peer_joined",
 		From:    peerID,
 		To:      "",
-		Payload: json.RawMessage(payloadJSON),
-	}, "")
+		Payload: payloadString,
+	}, peerID)
 
 	log.Printf("🔄 Starting message processing loop for peer %s", peerID)
 	// Обрабатываем сообщения от пира
@@ -127,7 +130,7 @@ func (s *SignalingServer) handleWebSocket(w http.ResponseWriter, r *http.Request
 			Type:    "peer_left",
 			From:    peerID,
 			To:      "",
-			Payload: json.RawMessage(`{"peer_id": "` + peerID + `"}`),
+			Payload: `{"peer_id": "` + peerID + `"}`,
 		}, "")
 	}
 	log.Printf("✅ Cleanup completed for peer %s", peerID)
@@ -158,7 +161,7 @@ func (s *SignalingServer) handleMessage(peer *Peer, msg SignalMessage) {
 		var payload struct {
 			RoomCode string `json:"room_code"`
 		}
-		if err := json.Unmarshal(msg.Payload, &payload); err == nil {
+		if err := json.Unmarshal([]byte(msg.Payload), &payload); err == nil {
 			log.Printf("➕ Adding peer %s to room %s via join_room message", peer.ID, payload.RoomCode)
 			s.roomManager.AddPeerToRoom(payload.RoomCode, peer)
 		} else {

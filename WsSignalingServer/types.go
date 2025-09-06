@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"sync"
 
 	"github.com/gorilla/websocket"
@@ -16,10 +15,10 @@ type Peer struct {
 
 // SignalMessage представляет сообщение для сигналинга
 type SignalMessage struct {
-	Type    string          `json:"type"`
-	From    string          `json:"from"`
-	To      string          `json:"to"`
-	Payload json.RawMessage `json:"payload"`
+	Type    string `json:"type"`
+	From    string `json:"from"`
+	To      string `json:"to"`
+	Payload string `json:"payload"`
 }
 
 // Room представляет комнату с подключенными пирами
