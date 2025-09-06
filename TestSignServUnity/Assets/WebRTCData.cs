@@ -76,5 +76,5 @@ public class ICECandidatePayload
     /// SDP media line index (sdpMLineIndex)
     /// Индекс медиа секции в SDP (0 для первой секции)
     /// </summary>
-    public int sdpMLineIndex;
+    public int? sdpMLineIndex;
 } 

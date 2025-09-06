@@ -2,221 +2,186 @@ using UnityEngine;
 using Unity.WebRTC;
 using System;
 using System.Collections;
-using System.Collections.Generic;
 using System.Text;
 
 [RequireComponent(typeof(SignalingClient))]
-
-
-/// <summary>
-/// Менеджер WebRTC соединений
-/// Создает RTCPeerConnection, управляет SDP offer/answer и ICE candidates
-/// </summary>
 public class WebRTCManager : MonoBehaviour
 {
     [Header("WebRTC Configuration")]
-    /// <summary>
-    /// Конфигурация WebRTC соединения (ICE серверы, политики и т.д.)
-    /// </summary>
-    public RTCConfiguration rtcConfig = new() {
+    public RTCConfiguration rtcConfig = new()
+    {
         iceServers = new[]
         {
             new RTCIceServer { urls = new[] { "stun:stun.l.google.com:19302", "stun:stun1.l.google.com:19302" } },
-
             new RTCIceServer
             {
-                urls = new string[] { "turn:global.relay.metered.ca:443" },
+                urls = new[] { "turn:global.relay.metered.ca:443" },
                 username = "b7adc85b4cf785c04869754c",
                 credential = "ZZ3Ln89FzaDMrF5n"
             }
-        }   
+        }
     };
 
-    // WebRTC connections
-    private RTCPeerConnection localPeer;
-    private RTCPeerConnection remotePeer;
+    // Single PeerConnection per client
+    private RTCPeerConnection pc;
     private RTCDataChannel dataChannel;
-    
-    // Internal state
+
+    // Role & target
     private bool isInitiator = false;
-    private string targetPeerId = "";
-    
+    private string targetPeerId = string.Empty;
+
     // Events
-    /// <summary>
-    /// Событие: получено сообщение через DataChannel
-    /// </summary>
     public event Action<string> OnDataChannelMessage;
-    
-    /// <summary>
-    /// Событие: DataChannel открылся
-    /// </summary>
     public event Action OnDataChannelOpen;
-    
-    /// <summary>
-    /// Событие: DataChannel закрылся
-    /// </summary>
     public event Action OnDataChannelClose;
-    
-    /// <summary>
-    /// Событие: изменилось состояние ICE соединения
-    /// </summary>
     public event Action<RTCIceConnectionState> OnIceConnectionStateChanged;
-    
-    /// <summary>
-    /// Событие: изменилось состояние соединения
-    /// </summary>
     public event Action<RTCPeerConnectionState> OnConnectionStateChanged;
 
+    private SignalingClient signaling;
+
+    void Awake()
+    {
+        signaling = GetComponent<SignalingClient>();
+    }
+
     /// <summary>
-    /// Создать WebRTC соединение
+    /// Create one RTCPeerConnection and start negotiation depending on the role.
     /// </summary>
-    /// <param name="asInitiator">true если этот peer инициирует соединение</param>
-    /// <param name="peerId">ID целевого peer'а</param>
     public void CreateConnection(bool asInitiator, string peerId)
     {
         isInitiator = asInitiator;
         targetPeerId = peerId;
 
-        if (asInitiator)
+        // Clean previous
+        CloseConnection();
+
+        // Build PC
+        pc = new RTCPeerConnection(ref rtcConfig);
+
+        // ICE → signal
+        pc.OnIceCandidate = cand =>
         {
-            CreateLocalPeerConnection();
+            if (cand == null) return;
+            SendICECandidate(cand);
+        };
+
+        // State logs
+        pc.OnIceConnectionChange = state =>
+        {
+            OnIceConnectionStateChanged?.Invoke(state);
+        };
+        pc.OnConnectionStateChange = state =>
+        {
+            OnConnectionStateChanged?.Invoke(state);
+        };
+
+        // Incoming DataChannel (on the answerer typically)
+        pc.OnDataChannel = ch =>
+        {
+            SetupDataChannel(ch);
+        };
+
+        if (isInitiator)
+        {
+            // Create DC BEFORE CreateOffer
             CreateDataChannel();
             StartCoroutine(CreateAndSendOffer());
         }
-        else
-        {
-            CreateRemotePeerConnection();
-        }
     }
 
-    /// <summary>
-    /// Создать локальный RTCPeerConnection (для инициатора)
-    /// </summary>
-    private void CreateLocalPeerConnection()
-    {
-        localPeer = new RTCPeerConnection(ref rtcConfig)
-        {
-            OnIceCandidate = candidate =>
-            {
-                SendICECandidate(candidate);
-            },
-
-            OnIceConnectionChange = state =>
-                {
-                    OnIceConnectionStateChanged?.Invoke(state);
-                },
-
-            OnConnectionStateChange = state =>
-                {
-                    OnConnectionStateChanged?.Invoke(state);
-                }
-        };
-    }
-
-    /// <summary>
-    /// Создать удаленный RTCPeerConnection (для получателя)
-    /// </summary>
-    private void CreateRemotePeerConnection()
-    {
-        remotePeer = new RTCPeerConnection(ref rtcConfig)
-        {
-            OnIceCandidate = candidate =>
-            {
-                SendICECandidate(candidate);
-            },
-
-            OnDataChannel = channel =>
-            {
-                SetupDataChannel(channel);
-            },
-
-            OnIceConnectionChange = state =>
-            {
-                OnIceConnectionStateChanged?.Invoke(state);
-            }
-        };
-    }
-
-    /// <summary>
-    /// Создать DataChannel для передачи данных
-    /// </summary>
     private void CreateDataChannel()
     {
-        dataChannel = localPeer.CreateDataChannel("data");
+        // Default reliable ordered
+        dataChannel = pc.CreateDataChannel("data");
         SetupDataChannel(dataChannel);
     }
 
-    /// <summary>
-    /// Настроить DataChannel (обработчики событий)
-    /// </summary>
     private void SetupDataChannel(RTCDataChannel channel)
     {
+        if (channel == null) return;
+
         channel.OnMessage = bytes =>
         {
             string message = Encoding.UTF8.GetString(bytes);
             OnDataChannelMessage?.Invoke(message);
         };
-        
+
         channel.OnOpen += () =>
         {
             OnDataChannelOpen?.Invoke();
         };
-        
+
         channel.OnClose += () =>
         {
             OnDataChannelClose?.Invoke();
         };
     }
 
-
-    /// <summary>
-    /// Создать и отправить SDP offer
-    /// </summary>
+    // === Negotiation ===
     private IEnumerator CreateAndSendOffer()
     {
-        var offerOp = localPeer.CreateOffer();
+        var offerOp = pc.CreateOffer();
         yield return offerOp;
-        
-        if (!offerOp.IsError)
-        {
-            var desc = offerOp.Desc;
-            yield return localPeer.SetLocalDescription(ref desc);
-            
-            var offerMessage = new SignalingMessage
-            {
-                type = "offer",
-                from = GetComponent<SignalingClient>().PeerId,
-                to = targetPeerId,
-                payload = offerOp.Desc.sdp
-            };
-            
-            GetComponent<SignalingClient>().SendMessage(offerMessage);
-        }
-        else
+
+        if (offerOp.IsError)
         {
             Debug.LogError($"Failed to create offer: {offerOp.Error.message}");
+            yield break;
         }
-    }
 
-    /// <summary>
-    /// Отправить ICE candidate через signaling
-    /// </summary>
-    private void SendICECandidate(RTCIceCandidate candidate)
-    {
-        var message = new SignalingMessage
+        var offer = offerOp.Desc;
+        var setLocal = pc.SetLocalDescription(ref offer);
+        yield return setLocal;
+
+        if (setLocal.IsError)
         {
-            type = "ice_candidate",
-            from = GetComponent<SignalingClient>().PeerId,
+            Debug.LogError($"Failed to SetLocalDescription(offer): {setLocal.Error.message}");
+            yield break;
+        }
+
+        // Wrap SDP in SDPPayload JSON inside SignalingMessage.payload (string)
+        var sdpPayload = new SDPPayload { type = "offer", sdp = offer.sdp };
+        var msg = new SignalingMessage
+        {
+            type = "offer",
+            from = signaling.PeerId,
             to = targetPeerId,
-            payload = candidate.Candidate
+            payload = JsonUtility.ToJson(sdpPayload)
         };
-        
-        GetComponent<SignalingClient>().SendMessage(message);
+        signaling.SendMessage(msg);
     }
 
-    /// <summary>
-    /// Обработать signaling сообщение (offer, answer, ice_candidate)
-    /// </summary>
+    private IEnumerator CreateAndSendAnswer()
+    {
+        var answerOp = pc.CreateAnswer();
+        yield return answerOp;
+        if (answerOp.IsError)
+        {
+            Debug.LogError($"Failed to create answer: {answerOp.Error.message}");
+            yield break;
+        }
+
+        var answer = answerOp.Desc;
+        var setLocal = pc.SetLocalDescription(ref answer);
+        yield return setLocal;
+        if (setLocal.IsError)
+        {
+            Debug.LogError($"Failed to SetLocalDescription(answer): {setLocal.Error.message}");
+            yield break;
+        }
+
+        var sdpPayload = new SDPPayload { type = "answer", sdp = answer.sdp };
+        var msg = new SignalingMessage
+        {
+            type = "answer",
+            from = signaling.PeerId,
+            to = targetPeerId,
+            payload = JsonUtility.ToJson(sdpPayload)
+        };
+        signaling.SendMessage(msg);
+    }
+
+    // === Signaling handlers ===
     public void HandleSignalingMessage(SignalingMessage message)
     {
         switch (message.type)
@@ -233,134 +198,162 @@ public class WebRTCManager : MonoBehaviour
         }
     }
 
-    /// <summary>
-    /// Обработать SDP offer
-    /// </summary>
     private IEnumerator HandleOffer(SignalingMessage message)
     {
-        if (remotePeer == null)
+        // Ensure PC exists (receiver path)
+        if (pc == null)
         {
-            CreateRemotePeerConnection();
+            // If we got an offer unexpectedly, become receiver for this peer
+            CreateConnection(false, message.from);
         }
+        if (string.IsNullOrEmpty(targetPeerId)) targetPeerId = message.from;
 
-        // Проверяем что payload не null и не пустой
         if (string.IsNullOrEmpty(message.payload))
         {
-            Debug.LogError("HandleOffer: message.payload is null or empty");
+            Debug.LogError("HandleOffer: empty payload");
             yield break;
         }
 
-        string sdpString = message.payload;
+        var sdpPayload = JsonUtility.FromJson<SDPPayload>(message.payload);
+        var remote = new RTCSessionDescription { type = RTCSdpType.Offer, sdp = sdpPayload.sdp };
 
-        var desc = new RTCSessionDescription
+        var setRemote = pc.SetRemoteDescription(ref remote);
+        yield return setRemote;
+        if (setRemote.IsError)
         {
-            type = RTCSdpType.Offer,
-            sdp = sdpString
-        };
-
-        yield return remotePeer.SetRemoteDescription(ref desc);
-        
-        var answerOp = remotePeer.CreateAnswer();
-        yield return answerOp;
-        
-        if (!answerOp.IsError)
-        {
-            var answerDesc = answerOp.Desc;
-            yield return remotePeer.SetLocalDescription(ref answerDesc);
-            
-            var answerMessage = new SignalingMessage
-            {
-                type = "answer",
-                from = GetComponent<SignalingClient>().PeerId,
-                to = message.from,
-                payload = answerOp.Desc.sdp
-            };
-            
-            GetComponent<SignalingClient>().SendMessage(answerMessage);
+            Debug.LogError($"SetRemoteDescription(offer) error: {setRemote.Error.message}");
+            yield break;
         }
+
+        // Create/send answer
+        yield return CreateAndSendAnswer();
     }
 
-    /// <summary>
-    /// Обработать SDP answer
-    /// </summary>
     private IEnumerator HandleAnswer(SignalingMessage message)
     {
-        if (localPeer != null)
+        if (pc == null)
         {
-            // Проверяем что payload не null и не пустой
-            if (string.IsNullOrEmpty(message.payload))
-            {
-                Debug.LogError("HandleAnswer: message.payload is null or empty");
-                yield break;
-            }
+            Debug.LogWarning("HandleAnswer: pc is null, ignoring");
+            yield break;
+        }
+        if (string.IsNullOrEmpty(message.payload))
+        {
+            Debug.LogError("HandleAnswer: empty payload");
+            yield break;
+        }
 
-            string sdpString = message.payload;
+        var sdpPayload = JsonUtility.FromJson<SDPPayload>(message.payload);
+        var remote = new RTCSessionDescription { type = RTCSdpType.Answer, sdp = sdpPayload.sdp };
 
-            var desc = new RTCSessionDescription
-            {
-                type = RTCSdpType.Answer,
-                sdp = sdpString
-            };
-
-            yield return localPeer.SetRemoteDescription(ref desc);
+        var setRemote = pc.SetRemoteDescription(ref remote);
+        yield return setRemote;
+        if (setRemote.IsError)
+        {
+            Debug.LogError($"SetRemoteDescription(answer) error: {setRemote.Error.message}");
         }
     }
 
-    /// <summary>
-    /// Обработать ICE candidate
-    /// </summary>
+    private void SendICECandidate(RTCIceCandidate candidate)
+    {
+        var payload = new ICECandidatePayload
+        {
+            candidate = candidate.Candidate,
+            sdpMid = candidate.SdpMid,
+            sdpMLineIndex = candidate.SdpMLineIndex
+        };
+
+        var msg = new SignalingMessage
+        {
+            type = "ice_candidate",
+            from = signaling.PeerId,
+            to = targetPeerId,
+            payload = JsonUtility.ToJson(payload)
+        };
+        signaling.SendMessage(msg);
+    }
+
     private void HandleICECandidate(SignalingMessage message)
     {
-        // В Unity WebRTC, ICE candidates обрабатываются автоматически
-        // при установке remote description, поэтому можно пропустить
-        // ручную обработку ICE candidates
-        if (!string.IsNullOrEmpty(message.payload))
+        if (pc == null)
         {
-            Debug.Log($"Received ICE candidate: {message.payload}");
+            Debug.LogWarning("ICE received but pc is null — ignoring");
+            return;
         }
-        else
+        if (string.IsNullOrEmpty(message.payload))
         {
-            Debug.LogWarning("Received ICE candidate with empty payload");
+            Debug.LogWarning("Received ICE with empty payload");
+            return;
+        }
+
+        var payload = JsonUtility.FromJson<ICECandidatePayload>(message.payload);
+        if (payload == null || string.IsNullOrEmpty(payload.candidate))
+        {
+            Debug.LogWarning("ICE payload parse failed or empty candidate");
+            return;
+        }
+
+        var init = new RTCIceCandidateInit
+        {
+            candidate = payload.candidate,
+            sdpMid = payload.sdpMid,
+            sdpMLineIndex = payload.sdpMLineIndex
+        };
+
+        try
+        {
+            var ice = new RTCIceCandidate(init);
+            pc.AddIceCandidate(ice);
+        }
+        catch (Exception e)
+        {
+            Debug.LogError($"AddIceCandidate error: {e.Message}");
         }
     }
 
-    /// <summary>
-    /// Отправить сообщение через DataChannel
-    /// </summary>
+    // === DataChannel send ===
     public void SendMsg(string message)
     {
         if (dataChannel != null && dataChannel.ReadyState == RTCDataChannelState.Open)
         {
-            byte[] bytes = System.Text.Encoding.UTF8.GetBytes(message);
+            var bytes = Encoding.UTF8.GetBytes(message);
             dataChannel.Send(bytes);
+        }
+        else
+        {
+            Debug.LogWarning("SendMsg: data channel is not open");
         }
     }
 
-    /// <summary>
-    /// Закрыть WebRTC соединение
-    /// </summary>
     public void CloseConnection()
     {
-        if (localPeer != null)
+        try
         {
-            localPeer.Close();
-            localPeer.Dispose();
-            localPeer = null;
+            if (dataChannel != null)
+            {
+                dataChannel.Close();
+                dataChannel.Dispose();
+            }
         }
-        
-        if (remotePeer != null)
+        catch { }
+        finally { dataChannel = null; }
+
+        try
         {
-            remotePeer.Close();
-            remotePeer.Dispose();
-            remotePeer = null;
+            if (pc != null)
+            {
+                pc.Close();
+                pc.Dispose();
+            }
         }
-        
-        dataChannel = null;
-        targetPeerId = "";
+        catch { }
+        finally { pc = null; }
+
+        // Keep targetPeerId/isInitiator so we can reconnect with same role if needed
     }
 
     void OnDestroy()
     {
         CloseConnection();
     }
-} 
+}
+
