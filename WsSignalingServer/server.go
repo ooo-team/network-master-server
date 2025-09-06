@@ -97,7 +97,7 @@ func (s *SignalingServer) handleWebSocket(w http.ResponseWriter, r *http.Request
 		From:    peerID,
 		To:      "",
 		Payload: json.RawMessage(payloadJSON),
-	}, peerID)
+	}, "")
 
 	log.Printf("🔄 Starting message processing loop for peer %s", peerID)
 	// Обрабатываем сообщения от пира
