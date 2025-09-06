@@ -47,6 +47,11 @@ public class SignalingClient : MonoBehaviour
     /// </summary>
     public event Action<SignalingMessage> OnSignalingMessage;
     
+    /// <summary>
+    /// Событие: подключение к signaling server'у установлено
+    /// </summary>
+    public event Action OnConnected;
+    
     // Properties
     public string PeerId => peerIdPrefix;
     public bool IsConnected => isConnected;
@@ -91,6 +96,7 @@ public class SignalingClient : MonoBehaviour
         {
             Debug.Log("Connected to signaling server");
             isConnected = true;
+            OnConnected?.Invoke();
         };
         
         webSocket.OnMessage += (bytes) =>
@@ -142,6 +148,9 @@ public class SignalingClient : MonoBehaviour
                 case "peer_left":
                     HandlePeerLeft(signalMsg);
                     break;
+                case "room_state":
+                    HandleRoomState(signalMsg);
+                    break;
                 case "offer":
                 case "answer":
                 case "ice_candidate":
@@ -181,6 +190,34 @@ public class SignalingClient : MonoBehaviour
             connectedPeers.Remove(msg.from);
             Debug.Log($"Peer left: {msg.from}");
             OnPeerLeft?.Invoke(msg.from);
+        }
+    }
+    
+    /// <summary>
+    /// Обработать состояние комнаты (список всех peer'ов в комнате)
+    /// </summary>
+    private void HandleRoomState(SignalingMessage msg)
+    {
+        try
+        {
+            // payload должно содержать массив peer ID'ов
+            if (msg.payload is string payloadStr)
+            {
+                string[] peerIds = JsonUtility.FromJson<string[]>(payloadStr);
+                foreach (string peerId in peerIds)
+                {
+                    if (peerId != peerIdPrefix && !connectedPeers.Contains(peerId))
+                    {
+                        connectedPeers.Add(peerId);
+                        Debug.Log($"Found existing peer: {peerId}");
+                        OnPeerJoined?.Invoke(peerId);
+                    }
+                }
+            }
+        }
+        catch (Exception e)
+        {
+            Debug.LogError($"Failed to parse room state: {e.Message}");
         }
     }
     

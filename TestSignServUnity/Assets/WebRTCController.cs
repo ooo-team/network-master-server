@@ -129,6 +129,7 @@ public class WebRTCController : MonoBehaviour
         signalingClient.OnPeerJoined += OnPeerJoined;
         signalingClient.OnPeerLeft += OnPeerLeft;
         signalingClient.OnSignalingMessage += OnSignalingMessage;
+        signalingClient.OnConnected += OnSignalingConnected;
         
         // WebRTC events
         webRTCManager.OnDataChannelMessage += OnDataChannelMessage;
@@ -230,6 +231,16 @@ public class WebRTCController : MonoBehaviour
     }
 
     /// <summary>
+    /// Обработчик подключения к signaling server'у
+    /// </summary>
+    private void OnSignalingConnected()
+    {
+        // Обновляем UI чтобы показать себя в списке peer'ов
+        UpdatePeerList();
+        AddChatMessage("Connected to signaling server");
+    }
+
+    /// <summary>
     /// Обработчик сообщений через DataChannel
     /// </summary>
     private void OnDataChannelMessage(string message)
@@ -289,14 +300,36 @@ public class WebRTCController : MonoBehaviour
     {
         if (peerListText == null) return;
         
-        // Просто выводим список peer'ов как текст
-        if (peersInRoom.Count == 0)
+        // Создаем полный список всех клиентов включая себя
+        List<string> allClients = new List<string>();
+        
+        // Добавляем себя в начало списка с пометкой (Me)
+        if (signalingClient != null && signalingClient.IsConnected)
         {
-            peerListText.text = "No peers in room";
+            allClients.Add($"{signalingClient.PeerId} (Me)");
+        }
+        
+        // Добавляем остальных peer'ов
+        foreach (string peerId in peersInRoom)
+        {
+            if (peerId != signalingClient.PeerId) // Избегаем дублирования
+            {
+                allClients.Add(peerId);
+            }
+        }
+        
+        // Отображаем список
+        if (allClients.Count == 0)
+        {
+            peerListText.text = "No clients connected";
+        }
+        else if (allClients.Count == 1 && signalingClient.IsConnected)
+        {
+            peerListText.text = "Clients in room:\n" + allClients[0] + "\n(Waiting for others...)";
         }
         else
         {
-            peerListText.text = "Peers in room:\n" + string.Join("\n", peersInRoom);
+            peerListText.text = "Clients in room:\n" + string.Join("\n", allClients);
         }
     }
 
@@ -367,6 +400,7 @@ public class WebRTCController : MonoBehaviour
             signalingClient.OnPeerJoined -= OnPeerJoined;
             signalingClient.OnPeerLeft -= OnPeerLeft;
             signalingClient.OnSignalingMessage -= OnSignalingMessage;
+            signalingClient.OnConnected -= OnSignalingConnected;
         }
         
         if (webRTCManager != null)
