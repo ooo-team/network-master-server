@@ -178,10 +178,10 @@ public class WebRTCController : MonoBehaviour
     /// <summary>
     /// Обработчик присоединения peer'а
     /// </summary>
-    private void OnPeerJoined(string peerId)
+    private void OnPeerJoined(string peerId, bool newbie)
     {
         UpdatePeerList();
-        StartWebRTCConnection(peerId, true);
+        StartWebRTCConnection(peerId, !newbie);
     }
 
     /// <summary>

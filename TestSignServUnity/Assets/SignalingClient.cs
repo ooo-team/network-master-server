@@ -35,7 +35,7 @@ public class SignalingClient : MonoBehaviour
     /// <summary>
     /// Событие: новый peer присоединился к комнате
     /// </summary>
-    public event Action<string> OnPeerJoined;
+    public event Action<string, bool> OnPeerJoined;
 
     /// <summary>
     /// Событие: peer покинул комнату
@@ -198,7 +198,7 @@ public class SignalingClient : MonoBehaviour
             {
                 PeersInRoom.Add(peer);
                 Debug.Log($"Peer joined: {peer}");
-                OnPeerJoined?.Invoke(peer);
+                OnPeerJoined?.Invoke(peer, msg.from == peer);
             }
         } 
     }
@@ -233,7 +233,7 @@ public class SignalingClient : MonoBehaviour
                     {
                         PeersInRoom.Add(peerId);
                         Debug.Log($"Found existing peer: {peerId}");
-                        OnPeerJoined?.Invoke(peerId);
+                        OnPeerJoined?.Invoke(peerId, false);
                     }
                 }
             }
