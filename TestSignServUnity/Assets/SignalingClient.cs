@@ -24,12 +24,11 @@ public class SignalingClient : MonoBehaviour
     /// <summary>
     /// ID этого peer'а (генерируется автоматически)
     /// </summary>
-    public string peerIdPrefix = "unity_client";
+    public string thisPeerID = "unity_client";
     
     // WebSocket connection
     private WebSocket webSocket;
     private bool isConnected = false;
-    private List<string> connectedPeers = new ();
     
     // Events
     /// <summary>
@@ -53,14 +52,19 @@ public class SignalingClient : MonoBehaviour
     public event Action OnConnected;
     
     // Properties
-    public string PeerId => peerIdPrefix;
+    public string PeerId => thisPeerID;
     public bool IsConnected => isConnected;
-    public List<string> ConnectedPeers => new List<string>(connectedPeers);
-    
+
+    /// <summary>
+    /// Список peer'ов в комнате
+    /// </summary>
+    public List<string> PeersInRoom = new();
+
     void Start()
     {
         // Generate random peer ID
-        peerIdPrefix = "unity_client_" + UnityEngine.Random.Range(1000, 9999);
+        thisPeerID = "unity_client_" + UnityEngine.Random.Range(1000, 9999);
+        PeersInRoom.Add(thisPeerID);
     }
     
     void Update()
@@ -89,7 +93,7 @@ public class SignalingClient : MonoBehaviour
         
         Debug.Log("Connecting to signaling server...");
         
-        string fullUrl = $"{serverUrl}?peer_id={peerIdPrefix}&room={roomCode}";
+        string fullUrl = $"{serverUrl}?peer_id={thisPeerID}&room={roomCode}";
         webSocket = new WebSocket(fullUrl);
         
         webSocket.OnOpen += () =>
@@ -114,7 +118,7 @@ public class SignalingClient : MonoBehaviour
         {
             Debug.Log("Signaling connection closed");
             isConnected = false;
-            connectedPeers.Clear();
+            PeersInRoom.Clear();
         };
         
         await webSocket.Connect();
@@ -181,9 +185,9 @@ public class SignalingClient : MonoBehaviour
     /// </summary>
     private void HandlePeerJoined(SignalingMessage msg)
     {
-        if (!connectedPeers.Contains(msg.from) && msg.from != peerIdPrefix)
+        if (!PeersInRoom.Contains(msg.from) && msg.from != thisPeerID)
         {
-            connectedPeers.Add(msg.from);
+            PeersInRoom.Add(msg.from);
             Debug.Log($"Peer joined: {msg.from}");
             OnPeerJoined?.Invoke(msg.from);
         }
@@ -194,9 +198,9 @@ public class SignalingClient : MonoBehaviour
     /// </summary>
     private void HandlePeerLeft(SignalingMessage msg)
     {
-        if (connectedPeers.Contains(msg.from))
+        if (PeersInRoom.Contains(msg.from))
         {
-            connectedPeers.Remove(msg.from);
+            PeersInRoom.Remove(msg.from);
             Debug.Log($"Peer left: {msg.from}");
             OnPeerLeft?.Invoke(msg.from);
         }
@@ -215,9 +219,9 @@ public class SignalingClient : MonoBehaviour
                 string[] peerIds = JsonUtility.FromJson<string[]>(msg.payload);
                 foreach (string peerId in peerIds)
                 {
-                    if (peerId != peerIdPrefix && !connectedPeers.Contains(peerId))
+                    if (peerId != thisPeerID && !PeersInRoom.Contains(peerId))
                     {
-                        connectedPeers.Add(peerId);
+                        PeersInRoom.Add(peerId);
                         Debug.Log($"Found existing peer: {peerId}");
                         OnPeerJoined?.Invoke(peerId);
                     }

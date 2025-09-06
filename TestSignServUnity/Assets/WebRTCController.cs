@@ -65,16 +65,6 @@ public class WebRTCController : MonoBehaviour
     private WebRTCManager webRTCManager;
     
     /// <summary>
-    /// Список peer'ов в комнате
-    /// </summary>
-    private readonly List<string> peersInRoom = new ();
-    
-    /// <summary>
-    /// ID текущего подключенного peer'а
-    /// </summary>
-    private string connectedPeerId = "";
-    
-    /// <summary>
     /// Сообщения чата
     /// </summary>
     private readonly List<string> chatMessages = new ();
@@ -163,7 +153,6 @@ public class WebRTCController : MonoBehaviour
     {
         // Закрыть WebRTC соединение
         webRTCManager.CloseConnection();
-        connectedPeerId = "";
         
         // Отключиться от signaling server'а
         signalingClient.Disconnect();
@@ -191,17 +180,8 @@ public class WebRTCController : MonoBehaviour
     /// </summary>
     private void OnPeerJoined(string peerId)
     {
-        if (!peersInRoom.Contains(peerId))
-        {
-            peersInRoom.Add(peerId);
-            UpdatePeerList();
-            
-            // Если это первый peer, инициировать WebRTC соединение
-            if (peersInRoom.Count == 1)
-            {
-                StartWebRTCConnection(peerId, true);
-            }
-        }
+        UpdatePeerList();
+        StartWebRTCConnection(peerId, true);
     }
 
     /// <summary>
@@ -209,18 +189,15 @@ public class WebRTCController : MonoBehaviour
     /// </summary>
     private void OnPeerLeft(string peerId)
     {
-        if (peersInRoom.Contains(peerId))
+        if (signalingClient.PeersInRoom.Contains(peerId))
         {
-            peersInRoom.Remove(peerId);
+            signalingClient.PeersInRoom.Remove(peerId);
             UpdatePeerList();
             
             // Если это был подключенный peer, закрыть соединение
-            if (connectedPeerId == peerId)
-            {
-                webRTCManager.CloseConnection();
-                connectedPeerId = "";
-                AddChatMessage($"Peer {peerId} disconnected");
-            }
+            
+            webRTCManager.CloseConnection();
+            AddChatMessage($"Peer {peerId} disconnected");
         }
     }
 
@@ -265,7 +242,6 @@ public class WebRTCController : MonoBehaviour
     private void OnDataChannelClose()
     {
         AddChatMessage("WebRTC connection closed");
-        connectedPeerId = "";
         UpdateUI();
     }
 
@@ -290,7 +266,6 @@ public class WebRTCController : MonoBehaviour
     /// </summary>
     private void StartWebRTCConnection(string peerId, bool asInitiator)
     {
-        connectedPeerId = peerId;
         webRTCManager.CreateConnection(asInitiator, peerId);
         AddChatMessage($"Starting WebRTC connection with {peerId} (as {(asInitiator ? "initiator" : "receiver")})");
     }
@@ -316,7 +291,7 @@ public class WebRTCController : MonoBehaviour
         }
         
         // Добавляем остальных peer'ов
-        foreach (string peerId in peersInRoom)
+        foreach (string peerId in signalingClient.PeersInRoom)
         {
             if (peerId != signalingClient.PeerId) // Избегаем дублирования
             {
@@ -375,19 +350,9 @@ public class WebRTCController : MonoBehaviour
         if (roomInput != null)
             roomInput.interactable = !isConnected;
             
-        if (sendMessageButton != null)
-            sendMessageButton.interactable = !string.IsNullOrEmpty(connectedPeerId);
-            
-        if (messageInput != null)
-            messageInput.interactable = !string.IsNullOrEmpty(connectedPeerId);
-            
         if (statusText != null)
         {
             string status = isConnected ? "Connected" : "Disconnected";
-            if (!string.IsNullOrEmpty(connectedPeerId))
-            {
-                status += $" | WebRTC: {connectedPeerId}";
-            }
             statusText.text = status;
         }
     }
