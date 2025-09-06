@@ -183,8 +183,8 @@ public class SignalingClient : MonoBehaviour
 
     private class AllPeersPayload
     {
-        public List<String> all_peers;
-        public String peer_id;
+        public string peer_id;
+        public List<string> all_peers;
     }
     /// <summary>
     /// Обработать присоединение нового peer'а
@@ -192,13 +192,15 @@ public class SignalingClient : MonoBehaviour
     private void HandlePeerJoined(SignalingMessage msg)
     {
         AllPeersPayload allPeersPayload = JsonUtility.FromJson<AllPeersPayload>(msg.payload);
-        Debug.Log(allPeersPayload.all_peers);
-        if (!PeersInRoom.Contains(msg.from) && msg.from != thisPeerID)
-        {
-            PeersInRoom.Add(msg.from);
-            Debug.Log($"Peer joined: {msg.from}");
-            OnPeerJoined?.Invoke(msg.from);
-        }
+
+        foreach (string peer in allPeersPayload.all_peers) {
+            if (!PeersInRoom.Contains(peer) && peer != thisPeerID)
+            {
+                PeersInRoom.Add(peer);
+                Debug.Log($"Peer joined: {peer}");
+                OnPeerJoined?.Invoke(peer);
+            }
+        } 
     }
 
     /// <summary>
