@@ -162,9 +162,9 @@ public class SignalingClient : MonoBehaviour
                 case "peer_left":
                     HandlePeerLeft(signalMsg);
                     break;
-                case "room_state":
-                    HandleRoomState(signalMsg);
-                    break;
+                // case "room_state":
+                //     HandleRoomState(signalMsg);
+                //     break;
                 case "offer":
                 case "answer":
                 case "ice_candidate":
@@ -198,7 +198,7 @@ public class SignalingClient : MonoBehaviour
             {
                 PeersInRoom.Add(peer);
                 Debug.Log($"Peer joined: {peer}");
-                OnPeerJoined?.Invoke(peer, msg.from == peer);
+                OnPeerJoined?.Invoke(peer, msg.from == PeerId);
             }
         } 
     }
@@ -219,30 +219,30 @@ public class SignalingClient : MonoBehaviour
     /// <summary>
     /// Обработать состояние комнаты (список всех peer'ов в комнате)
     /// </summary>
-    private void HandleRoomState(SignalingMessage msg)
-    {
-        try
-        {
-            // payload должно содержать массив peer ID'ов
-            if (!string.IsNullOrEmpty(msg.payload))
-            {
-                string[] peerIds = JsonUtility.FromJson<string[]>(msg.payload);
-                foreach (string peerId in peerIds)
-                {
-                    if (peerId != thisPeerID && !PeersInRoom.Contains(peerId))
-                    {
-                        PeersInRoom.Add(peerId);
-                        Debug.Log($"Found existing peer: {peerId}");
-                        OnPeerJoined?.Invoke(peerId, false);
-                    }
-                }
-            }
-        }
-        catch (Exception e)
-        {
-            Debug.LogError($"Failed to parse room state: {e.Message}");
-        }
-    }
+    // private void HandleRoomState(SignalingMessage msg)
+    // {
+    //     try
+    //     {
+    //         // payload должно содержать массив peer ID'ов
+    //         if (!string.IsNullOrEmpty(msg.payload))
+    //         {
+    //             string[] peerIds = JsonUtility.FromJson<string[]>(msg.payload);
+    //             foreach (string peerId in peerIds)
+    //             {
+    //                 if (peerId != thisPeerID && !PeersInRoom.Contains(peerId))
+    //                 {
+    //                     PeersInRoom.Add(peerId);
+    //                     Debug.Log($"Found existing peer: {peerId}");
+    //                     OnPeerJoined?.Invoke(peerId, false);
+    //                 }
+    //             }
+    //         }
+    //     }
+    //     catch (Exception e)
+    //     {
+    //         Debug.LogError($"Failed to parse room state: {e.Message}");
+    //     }
+    // }
 
     /// <summary>
     /// Отправить сообщение через signaling server
