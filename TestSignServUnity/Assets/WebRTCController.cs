@@ -2,6 +2,7 @@ using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
 using System.Collections.Generic;
+using Unity.WebRTC;
 
 [RequireComponent(typeof(SignalingClient))]
 [RequireComponent(typeof(WebRTCManager))]
@@ -359,8 +360,7 @@ public class WebRTCController : MonoBehaviour
 
     void Update()
     {
-        // Обновлять UI каждый кадр для отзывчивости
-        UpdateUI();
+        WebRTC.Update();
     }
 
     void OnDestroy()
