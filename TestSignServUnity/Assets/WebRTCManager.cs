@@ -99,19 +99,20 @@ public class WebRTCManager : MonoBehaviour
     private void SetupDataChannel(RTCDataChannel channel)
     {
         if (channel == null) return;
+        dataChannel = channel;
 
-        channel.OnMessage = bytes =>
+        dataChannel.OnMessage = bytes =>
         {
             string message = Encoding.UTF8.GetString(bytes);
             OnDataChannelMessage?.Invoke(message);
         };
 
-        channel.OnOpen += () =>
+        dataChannel.OnOpen += () =>
         {
             OnDataChannelOpen?.Invoke();
         };
 
-        channel.OnClose += () =>
+        dataChannel.OnClose += () =>
         {
             OnDataChannelClose?.Invoke();
         };
