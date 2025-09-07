@@ -12,10 +12,18 @@ public class WebRTCManager : MonoBehaviour
     {
         iceServers = new[]
         {
-            new RTCIceServer { urls = new[] { "stun:stun.l.google.com:19302", "stun:stun1.l.google.com:19302" } },
+            new RTCIceServer {
+                urls = new[] { "stun:stun.l.google.com:19302?transport=udp", "stun:stun1.l.google.com:19302?transport=udp" }
+            },
+            new RTCIceServer {
+                urls = new[] { "turn:global.relay.metered.ca:3478?transport=udp" },
+                username = "b7adc85b4cf785c04869754c",
+                credential = "ZZ3Ln89FzaDMrF5n"
+            },
             new RTCIceServer
             {
-                urls = new[] { "turn:global.relay.metered.ca:443" },
+                urls = new[] { "turn:global.relay.metered.ca:443?transport=tcp",
+                            "turns:global.relay.metered.ca:443?transport=tcp" },
                 username = "b7adc85b4cf785c04869754c",
                 credential = "ZZ3Ln89FzaDMrF5n"
             }
