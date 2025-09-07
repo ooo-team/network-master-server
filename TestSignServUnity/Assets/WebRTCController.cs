@@ -321,6 +321,7 @@ public class WebRTCController : MonoBehaviour
     private void AddChatMessage(string message)
     {
         chatMessages.Add(message);
+        Debug.Log(message);
         
         // Ограничить количество сообщений
         if (chatMessages.Count > 5)
