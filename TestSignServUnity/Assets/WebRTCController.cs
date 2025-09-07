@@ -323,7 +323,7 @@ public class WebRTCController : MonoBehaviour
         chatMessages.Add(message);
         
         // Ограничить количество сообщений
-        if (chatMessages.Count > 50)
+        if (chatMessages.Count > 5)
         {
             chatMessages.RemoveAt(0);
         }
