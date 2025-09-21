@@ -9,7 +9,7 @@ using System.Collections.Generic;
 /// </summary>
 public class WebRTCController : MonoBehaviour
 {
-    [Header("📱 UI Элементы")]
+    [Header("UI Elements")]
     public Button connectButton;        // Подключиться к комнате
     public Button disconnectButton;     // Отключиться
     public TMP_InputField roomInput;    // Название комнаты
@@ -144,8 +144,8 @@ public class WebRTCController : MonoBehaviour
         // Добавляем себя с информацией о signaling
         if (signaling?.IsConnected == true)
         {
-            lines.Add($"📱 {signaling.PeerId} (Я)");
-            lines.Add($"🌐 Signaling: WebSocket OK");
+            lines.Add($"Me: {signaling.PeerId}");
+            lines.Add("Signaling: Connected");
             lines.Add(""); // Пустая строка для разделения
         }
         
@@ -156,25 +156,21 @@ public class WebRTCController : MonoBehaviour
             {
                 if (peerId != signaling.PeerId)
                 {
-                    lines.Add($"👤 {peerId}");
+                    lines.Add($"Peer: {peerId}");
                     
                     if (webrtc.IsConnectedToPeer(peerId))
                     {
-                        lines.Add("  🔗 WebRTC: ✅ Connected");
+                        lines.Add("  WebRTC: Connected");
                         // Получаем детальную информацию о соединении
                         string connectionInfo = webrtc.GetConnectionDetails(peerId);
                         if (!string.IsNullOrEmpty(connectionInfo))
                         {
-                            var details = connectionInfo.Split(',');
-                            foreach (var detail in details)
-                            {
-                                lines.Add($"  {detail.Trim()}");
-                            }
+                            lines.Add($"  {connectionInfo}");
                         }
                     }
                     else
                     {
-                        lines.Add("  🔗 WebRTC: ⏳ Connecting...");
+                        lines.Add("  WebRTC: Connecting...");
                     }
                     lines.Add(""); // Пустая строка между пирами
                 }
@@ -222,11 +218,11 @@ public class WebRTCController : MonoBehaviour
             {
                 int connectedPeers = webrtc.ConnectedPeersCount;
                 int totalPeers = (signaling.PeersInRoom?.Count ?? 1) - 1;
-                statusText.text = $"🟢 Подключен - Mesh: {connectedPeers}/{totalPeers}";
+                statusText.text = $"Connected - Mesh: {connectedPeers}/{totalPeers} | {webrtc.GetConnectionsSummary()}";
             }
             else
             {
-                statusText.text = "🔴 Не подключен";
+                statusText.text = "Disconnected";
             }
         }
     }

@@ -10,7 +10,7 @@ using System.Text;
 /// </summary>
 public class SignalingClient : MonoBehaviour
 {
-    [Header("🌐 Настройки сервера")]
+     [Header("Server Settings")]
     public string serverUrl = "ws://95.165.133.136:8080/ws";
     public string roomCode = "test_room";
     public string thisPeerID = "unity_client";

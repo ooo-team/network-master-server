@@ -12,7 +12,7 @@ using System.Linq;
 /// </summary>
 public class WebRTCManager : MonoBehaviour
 {
-    [Header("Настройки WebRTC")]
+     [Header("WebRTC Settings")]
     public RTCConfiguration rtcConfig = new() {
         iceServers = new[]
         {
@@ -32,7 +32,7 @@ public class WebRTCManager : MonoBehaviour
         public RTCPeerConnection webrtc;     // Само WebRTC соединение
         public RTCDataChannel dataChannel;  // Канал для сообщений
         public bool isConnected = false;    // Готово ли соединение
-        public string connectionType = "🔍 Detecting..."; // Тип соединения (STUN/TURN/Direct)
+         public string connectionType = "Detecting..."; // Тип соединения (STUN/TURN/Direct)
         public int candidatesReceived = 0;   // Количество полученных ICE кандидатов
         
         public PeerConnection()
@@ -278,32 +278,32 @@ public class WebRTCManager : MonoBehaviour
         }
     }
     
-    /// <summary>
-    /// Определить тип соединения по ICE кандидату
-    /// </summary>
-    private void DetectConnectionType(PeerConnection peer, string candidateString)
-    {
-        if (candidateString.Contains("typ host"))
-        {
-            peer.connectionType = "🏠 Direct (LAN)";
-        }
-        else if (candidateString.Contains("typ srflx"))
-        {
-            peer.connectionType = "🌐 STUN (P2P)";
-        }
-        else if (candidateString.Contains("typ relay"))
-        {
-            peer.connectionType = "🔄 TURN (Relay)";
-        }
-        else if (candidateString.Contains("typ prflx"))
-        {
-            peer.connectionType = "🔍 Peer Reflexive";
-        }
-        else
-        {
-            peer.connectionType = "❓ Unknown";
-        }
-    }
+     /// <summary>
+     /// Определить тип соединения по ICE кандидату
+     /// </summary>
+     private void DetectConnectionType(PeerConnection peer, string candidateString)
+     {
+         if (candidateString.Contains("typ host"))
+         {
+             peer.connectionType = "Direct";
+         }
+         else if (candidateString.Contains("typ srflx"))
+         {
+             peer.connectionType = "STUN";
+         }
+         else if (candidateString.Contains("typ relay"))
+         {
+             peer.connectionType = "TURN";
+         }
+         else if (candidateString.Contains("typ prflx"))
+         {
+             peer.connectionType = "P2P";
+         }
+         else
+         {
+             peer.connectionType = "Unknown";
+         }
+     }
 
     /// <summary>
     /// Получили offer от пира - отвечаем answer
@@ -481,67 +481,91 @@ public class WebRTCManager : MonoBehaviour
     public List<string> ConnectedPeerIds => connections.Where(c => c.Value.isConnected).Select(c => c.Key).ToList();
     public bool IsConnectedToPeer(string peerId) => connections.TryGetValue(peerId, out var c) && c.isConnected;
     
-    /// <summary>
-    /// Получить детальную информацию о соединении с пиром
-    /// </summary>
-    public string GetConnectionDetails(string peerId)
-    {
-        if (!connections.TryGetValue(peerId, out var conn) || conn.webrtc == null)
-            return "";
-            
-        var details = new List<string>();
-        
-        // Состояние соединения
-        var connState = conn.webrtc.ConnectionState;
-        var iceState = conn.webrtc.IceConnectionState;
-        
-        // Используем определенный тип соединения
-        details.Add($"📡 {conn.connectionType}");
-        details.Add($"🔌 ICE: {GetIceStateIcon(iceState)} {iceState}");
-        details.Add($"⚡ Conn: {GetConnStateIcon(connState)} {connState}");
-        
-        // Добавляем количество ICE кандидатов если есть
-        if (conn.candidatesReceived > 0)
-        {
-            details.Add($"🧊 Candidates: {conn.candidatesReceived}");
-        }
-        
-        return string.Join(", ", details);
-    }
+     /// <summary>
+     /// Получить детальную информацию о соединении с пиром
+     /// </summary>
+     public string GetConnectionDetails(string peerId)
+     {
+         if (!connections.TryGetValue(peerId, out var conn) || conn.webrtc == null)
+             return "No connection";
+             
+         var connState = conn.webrtc.ConnectionState;
+         var iceState = conn.webrtc.IceConnectionState;
+         
+         // Компактный формат без эмоджи
+         string status = GetConnectionStatus(connState, iceState);
+         string type = conn.connectionType;
+         
+         if (conn.candidatesReceived > 0)
+         {
+             return $"{status} | {type} | ICE:{conn.candidatesReceived}";
+         }
+         else
+         {
+             return $"{status} | {type}";
+         }
+     }
     
-    private string GetIceStateIcon(Unity.WebRTC.RTCIceConnectionState state)
-    {
-        return state switch
-        {
-            Unity.WebRTC.RTCIceConnectionState.Connected => "✅",
-            Unity.WebRTC.RTCIceConnectionState.Completed => "✅",
-            Unity.WebRTC.RTCIceConnectionState.Checking => "⏳",
-            Unity.WebRTC.RTCIceConnectionState.New => "🆕",
-            Unity.WebRTC.RTCIceConnectionState.Disconnected => "❌",
-            Unity.WebRTC.RTCIceConnectionState.Failed => "💥",
-            Unity.WebRTC.RTCIceConnectionState.Closed => "🚪",
-            _ => "❓"
-        };
-    }
+     /// <summary>
+     /// Получить компактный статус соединения
+     /// </summary>
+     private string GetConnectionStatus(Unity.WebRTC.RTCPeerConnectionState connState, Unity.WebRTC.RTCIceConnectionState iceState)
+     {
+         // Приоритет отдаем состоянию соединения
+         return connState switch
+         {
+             Unity.WebRTC.RTCPeerConnectionState.Connected => "Connected",
+             Unity.WebRTC.RTCPeerConnectionState.Connecting => "Connecting",
+             Unity.WebRTC.RTCPeerConnectionState.New => "New",
+             Unity.WebRTC.RTCPeerConnectionState.Disconnected => "Disconnected",
+             Unity.WebRTC.RTCPeerConnectionState.Failed => "Failed",
+             Unity.WebRTC.RTCPeerConnectionState.Closed => "Closed",
+             _ => iceState switch
+             {
+                 Unity.WebRTC.RTCIceConnectionState.Connected => "ICE Connected",
+                 Unity.WebRTC.RTCIceConnectionState.Completed => "ICE Complete",
+                 Unity.WebRTC.RTCIceConnectionState.Checking => "ICE Checking",
+                 Unity.WebRTC.RTCIceConnectionState.Failed => "ICE Failed",
+                 _ => "Unknown"
+             }
+         };
+     }
     
-    private string GetConnStateIcon(Unity.WebRTC.RTCPeerConnectionState state)
-    {
-        return state switch
-        {
-            Unity.WebRTC.RTCPeerConnectionState.Connected => "✅",
-            Unity.WebRTC.RTCPeerConnectionState.Connecting => "⏳",
-            Unity.WebRTC.RTCPeerConnectionState.New => "🆕",
-            Unity.WebRTC.RTCPeerConnectionState.Disconnected => "❌",
-            Unity.WebRTC.RTCPeerConnectionState.Failed => "💥",
-            Unity.WebRTC.RTCPeerConnectionState.Closed => "🚪",
-            _ => "❓"
-        };
-    }
-    
-    // Для совместимости со старым кодом
-    public void SendMsg(string message) => BroadcastMessage(message);
-    public int GetActiveConnectionsCount() => ConnectedPeersCount;
-    public bool IsPeerConnected(string peerId) => IsConnectedToPeer(peerId);
+     /// <summary>
+     /// Получить краткую сводку о всех соединениях (для UI)
+     /// </summary>
+     public string GetConnectionsSummary()
+     {
+         if (connections.Count == 0)
+             return "No connections";
+             
+         var summary = new List<string>();
+         foreach (var kvp in connections)
+         {
+             string peerId = kvp.Key;
+             var conn = kvp.Value;
+             
+             // Короткий ID (последние 4 символа)
+             string shortId = peerId.Length > 4 ? peerId.Substring(peerId.Length - 4) : peerId;
+             
+             if (conn.isConnected)
+             {
+                 summary.Add($"{shortId}({conn.connectionType})");
+             }
+             else
+             {
+                 var state = conn.webrtc?.ConnectionState.ToString() ?? "None";
+                 summary.Add($"{shortId}({state})");
+             }
+         }
+         
+         return string.Join(", ", summary);
+     }
+     
+     // Для совместимости со старым кодом
+     public void SendMsg(string message) => BroadcastMessage(message);
+     public int GetActiveConnectionsCount() => ConnectedPeersCount;
+     public bool IsPeerConnected(string peerId) => IsConnectedToPeer(peerId);
 
     void OnDestroy()
     {
