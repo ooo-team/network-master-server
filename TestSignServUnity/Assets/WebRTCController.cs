@@ -2,386 +2,256 @@ using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
 using System.Collections.Generic;
-using Unity.WebRTC;
-
-[RequireComponent(typeof(SignalingClient))]
-[RequireComponent(typeof(WebRTCManager))]
 
 /// <summary>
-/// Главный контроллер WebRTC системы
-/// Объединяет SignalingClient и WebRTCManager, управляет UI
+/// ПРОСТОЙ контроллер для mesh-чата
+/// Соединяет UI с WebRTC и Signaling
 /// </summary>
 public class WebRTCController : MonoBehaviour
 {
-    [Header("UI References")]
-    /// <summary>
-    /// Кнопка подключения к signaling server'у
-    /// </summary>
-    public Button connectButton;
+    [Header("📱 UI Элементы")]
+    public Button connectButton;        // Подключиться к комнате
+    public Button disconnectButton;     // Отключиться
+    public TMP_InputField roomInput;    // Название комнаты
+    public TextMeshProUGUI statusText;  // Статус соединения
+    public TextMeshProUGUI peerListText;// Список пиров
+    public TMP_InputField messageInput; // Ввод сообщения
+    public Button sendMessageButton;    // Отправить сообщение
+    public TextMeshProUGUI messagesText;// Все сообщения
     
-    /// <summary>
-    /// Кнопка отключения от signaling server'а
-    /// </summary>
-    public Button disconnectButton;
+    // Наши компоненты
+    private SignalingClient signaling;
+    private WebRTCManager webrtc;
     
-    /// <summary>
-    /// Поле ввода названия комнаты
-    /// </summary>
-    public TMP_InputField roomInput;
-    
-    /// <summary>
-    /// Текст статуса подключения
-    /// </summary>
-    public TextMeshProUGUI statusText;
-    
-    /// <summary>
-    /// Текст для отображения списка peer'ов
-    /// </summary>
-    public TextMeshProUGUI peerListText;
-    
-    /// <summary>
-    /// Поле ввода сообщения для отправки
-    /// </summary>
-    public TMP_InputField messageInput;
-    
-    /// <summary>
-    /// Кнопка отправки сообщения
-    /// </summary>
-    public Button sendMessageButton;
-    
-    /// <summary>
-    /// Область для отображения сообщений
-    /// </summary>
-    public TextMeshProUGUI messagesText;
-    
-    [Header("Components")]
-    /// <summary>
-    /// Клиент для signaling server'а
-    /// </summary>
-    private SignalingClient signalingClient;
-    
-    /// <summary>
-    /// Менеджер WebRTC соединений
-    /// </summary>
-    private WebRTCManager webRTCManager;
-    
-    /// <summary>
-    /// Сообщения чата
-    /// </summary>
-    private readonly List<string> chatMessages = new ();
+    // Сообщения чата
+    private readonly List<string> messages = new();
 
     void Start()
     {
-        // Получить компоненты
-        signalingClient = GetComponent<SignalingClient>();
-        webRTCManager = GetComponent<WebRTCManager>();
+        // Получаем компоненты (или создаём если нет)
+        signaling = GetComponent<SignalingClient>() ?? gameObject.AddComponent<SignalingClient>();
+        webrtc = GetComponent<WebRTCManager>() ?? gameObject.AddComponent<WebRTCManager>();
         
-        if (signalingClient == null)
-        {
-            signalingClient = gameObject.AddComponent<SignalingClient>();
-        }
+        // Настраиваем кнопки
+        connectButton?.onClick.AddListener(() => ConnectToRoom());
+        disconnectButton?.onClick.AddListener(() => DisconnectFromRoom());
+        sendMessageButton?.onClick.AddListener(() => SendMessage());
         
-        if (webRTCManager == null)
-        {
-            webRTCManager = gameObject.AddComponent<WebRTCManager>();
-        }
+        // Подписываемся на события
+        signaling.OnPeerJoined += WhenPeerJoined;
+        signaling.OnPeerLeft += WhenPeerLeft;
+        signaling.OnSignalingMessage += webrtc.HandleSignalingMessage;
+        signaling.OnConnected += WhenConnectedToSignaling;
         
-        // Настроить UI
-        SetupUI();
+        webrtc.OnMessageReceived += WhenMessageReceived;
+        webrtc.OnPeerConnected += WhenPeerConnected;
+        webrtc.OnPeerDisconnected += WhenPeerDisconnected;
         
-        // Подписаться на события
-        SubscribeToEvents();
+        // Устанавливаем начальное состояние UI
+        UpdateUI();
         
-        // Установить начальное состояние
+        // Устанавливаем название комнаты по умолчанию
+        if (roomInput != null) roomInput.text = signaling.roomCode;
+    }
+
+    // === ПРОСТЫЕ МЕТОДЫ ДЛЯ КНОПОК ===
+    
+    void ConnectToRoom()
+    {
+        if (roomInput != null) signaling.roomCode = roomInput.text;
+        signaling.Connect();
         UpdateUI();
     }
-
-    /// <summary>
-    /// Настроить UI элементы
-    /// </summary>
-    private void SetupUI()
+    
+    void DisconnectFromRoom()
     {
-        if (connectButton != null)
-            connectButton.onClick.AddListener(OnConnectClicked);
-            
-        if (disconnectButton != null)
-            disconnectButton.onClick.AddListener(OnDisconnectClicked);
-            
-        if (sendMessageButton != null)
-            sendMessageButton.onClick.AddListener(OnSendMessageClicked);
-            
-        if (roomInput != null)
-            roomInput.text = signalingClient.roomCode;
-    }
-
-    /// <summary>
-    /// Подписаться на события компонентов
-    /// </summary>
-    private void SubscribeToEvents()
-    {
-        // Signaling events
-        signalingClient.OnPeerJoined += OnPeerJoined;
-        signalingClient.OnPeerLeft += OnPeerLeft;
-        signalingClient.OnSignalingMessage += OnSignalingMessage;
-        signalingClient.OnConnected += OnSignalingConnected;
-        
-        // WebRTC events
-        webRTCManager.OnDataChannelMessage += OnDataChannelMessage;
-        webRTCManager.OnDataChannelOpen += OnDataChannelOpen;
-        webRTCManager.OnDataChannelClose += OnDataChannelClose;
-        webRTCManager.OnIceConnectionStateChanged += OnIceConnectionStateChanged;
-        webRTCManager.OnConnectionStateChanged += OnConnectionStateChanged;
-    }
-
-    /// <summary>
-    /// Обработчик нажатия кнопки подключения
-    /// </summary>
-    private void OnConnectClicked()
-    {
-        if (roomInput != null)
-        {
-            signalingClient.roomCode = roomInput.text;
-        }
-        
-        signalingClient.Connect();
+        webrtc.DisconnectAll();
+        signaling.Disconnect();
         UpdateUI();
     }
-
-    /// <summary>
-    /// Обработчик нажатия кнопки отключения
-    /// </summary>
-    private void OnDisconnectClicked()
-    {
-        // Закрыть WebRTC соединение
-        webRTCManager.CloseConnection();
-        
-        // Отключиться от signaling server'а
-        signalingClient.Disconnect();
-        UpdateUI();
-    }
-
-    /// <summary>
-    /// Обработчик нажатия кнопки отправки сообщения
-    /// </summary>
-    private void OnSendMessageClicked()
+    
+    void SendMessage()
     {
         if (messageInput != null && !string.IsNullOrEmpty(messageInput.text))
         {
-            string message = messageInput.text;
-            AddChatMessage($"Me: {message}");
+            string msg = messageInput.text;
+            AddMessage($"Я: {msg}");
             messageInput.text = "";
-            
-            // Отправить через WebRTC DataChannel
-            webRTCManager.SendMsg(message);
+            webrtc.BroadcastMessage(msg);
         }
     }
 
-    /// <summary>
-    /// Обработчик присоединения peer'а
-    /// </summary>
-    private void OnPeerJoined(string peerId, bool newbie)
+    // === ПРОСТЫЕ ОБРАБОТЧИКИ СОБЫТИЙ ===
+    
+    void WhenPeerJoined(string peerId)
     {
+        // Только обновляем список пиров, без сообщения в чат
         UpdatePeerList();
-        StartWebRTCConnection(peerId, !newbie);
+        ConnectToAllPeers(); // Подключаемся ко всем пирам в комнате
     }
-
-    /// <summary>
-    /// Обработчик отключения peer'а
-    /// </summary>
-    private void OnPeerLeft(string peerId)
+    
+    void WhenPeerLeft(string peerId)
     {
-        if (signalingClient.PeersInRoom.Contains(peerId))
-        {
-            signalingClient.PeersInRoom.Remove(peerId);
-            UpdatePeerList();
-            
-            // Если это был подключенный peer, закрыть соединение
-            
-            webRTCManager.CloseConnection();
-            AddChatMessage($"Peer {peerId} disconnected");
-        }
-    }
-
-    /// <summary>
-    /// Обработчик signaling сообщений
-    /// </summary>
-    private void OnSignalingMessage(SignalingMessage message)
-    {
-        // Передать сообщение в WebRTCManager для обработки
-        webRTCManager.HandleSignalingMessage(message);
-    }
-
-    /// <summary>
-    /// Обработчик подключения к signaling server'у
-    /// </summary>
-    private void OnSignalingConnected()
-    {
-        // Обновляем UI чтобы показать себя в списке peer'ов
+        // Только обновляем список пиров, без сообщения в чат
+        webrtc.DisconnectPeer(peerId);
         UpdatePeerList();
     }
-
-    /// <summary>
-    /// Обработчик сообщений через DataChannel
-    /// </summary>
-    private void OnDataChannelMessage(string message)
+    
+    void WhenConnectedToSignaling()
     {
-        AddChatMessage($"Peer: {message}");
+        // Только обновляем список пиров, без сообщения в чат
+        UpdatePeerList();
+        ConnectToAllPeers(); // Подключаемся к уже существующим пирам
     }
-
-    /// <summary>
-    /// Обработчик открытия DataChannel
-    /// </summary>
-    private void OnDataChannelOpen()
+    
+    void WhenMessageReceived(string fromPeer, string message)
     {
-        AddChatMessage("WebRTC connection established!");
-        UpdateUI();
+        // ЭТО остается в чате - пользовательские сообщения
+        AddMessage($"{fromPeer}: {message}");
     }
-
-    /// <summary>
-    /// Обработчик закрытия DataChannel
-    /// </summary>
-    private void OnDataChannelClose()
+    
+    void WhenPeerConnected(string peerId)
     {
-        AddChatMessage("WebRTC connection closed");
-        UpdateUI();
+        // Только обновляем список пиров, без сообщения в чат
+        UpdatePeerList();
     }
-
-    /// <summary>
-    /// Обработчик изменения состояния ICE соединения
-    /// </summary>
-    private void OnIceConnectionStateChanged(Unity.WebRTC.RTCIceConnectionState state)
+    
+    void WhenPeerDisconnected(string peerId)
     {
-        AddChatMessage($"ICE State: {state}");
+        // Только обновляем список пиров, без сообщения в чат
+        UpdatePeerList();
     }
-
+    
     /// <summary>
-    /// Обработчик изменения состояния соединения
+    /// ГЛАВНЫЙ МЕТОД: Подключиться ко всем пирам в комнате
     /// </summary>
-    private void OnConnectionStateChanged(Unity.WebRTC.RTCPeerConnectionState state)
+    void ConnectToAllPeers()
     {
-        AddChatMessage($"Connection State: {state}");
-    }
-
-    /// <summary>
-    /// Начать WebRTC соединение с peer'ом
-    /// </summary>
-    private void StartWebRTCConnection(string peerId, bool asInitiator)
-    {
-        webRTCManager.CreateConnection(asInitiator, peerId);
-        AddChatMessage($"Starting WebRTC connection with {peerId} (as {(asInitiator ? "initiator" : "receiver")})");
-    }
-
-    /// <summary>
-    /// Обновить список peer'ов в UI
-    /// </summary>
-    private void UpdatePeerList()
-    {
-        if (peerListText == null)
+        if (signaling != null && signaling.IsConnected)
         {
-            Debug.LogError("peerListText not attached");
-            return;
+            webrtc.ConnectToAllPeers(signaling.PeersInRoom, signaling.PeerId);
+        }
+    }
+
+    // === ПРОСТЫЕ МЕТОДЫ UI ===
+    
+    void UpdatePeerList()
+    {
+        if (peerListText == null) return;
+        
+        var lines = new List<string>();
+        
+        // Добавляем себя с информацией о signaling
+        if (signaling?.IsConnected == true)
+        {
+            lines.Add($"📱 {signaling.PeerId} (Я)");
+            lines.Add($"🌐 Signaling: WebSocket OK");
+            lines.Add(""); // Пустая строка для разделения
         }
         
-        // Создаем полный список всех клиентов включая себя
-        List<string> allClients = new();
-        
-        // Добавляем себя в начало списка с пометкой (Me)
-        if (signalingClient != null && signalingClient.IsConnected)
+        // Добавляем других пиров с детальной информацией
+        if (signaling?.PeersInRoom != null)
         {
-            allClients.Add($"{signalingClient.PeerId} (Me)");
-        }
-        
-        // Добавляем остальных peer'ов
-        foreach (string peerId in signalingClient.PeersInRoom)
-        {
-            if (peerId != signalingClient.PeerId) // Избегаем дублирования
+            foreach (string peerId in signaling.PeersInRoom)
             {
-                allClients.Add(peerId);
+                if (peerId != signaling.PeerId)
+                {
+                    lines.Add($"👤 {peerId}");
+                    
+                    if (webrtc.IsConnectedToPeer(peerId))
+                    {
+                        lines.Add("  🔗 WebRTC: ✅ Connected");
+                        // Получаем детальную информацию о соединении
+                        string connectionInfo = webrtc.GetConnectionDetails(peerId);
+                        if (!string.IsNullOrEmpty(connectionInfo))
+                        {
+                            var details = connectionInfo.Split(',');
+                            foreach (var detail in details)
+                            {
+                                lines.Add($"  {detail.Trim()}");
+                            }
+                        }
+                    }
+                    else
+                    {
+                        lines.Add("  🔗 WebRTC: ⏳ Connecting...");
+                    }
+                    lines.Add(""); // Пустая строка между пирами
+                }
             }
         }
         
-        // Отображаем список
-        if (allClients.Count == 0)
+        // Показываем список
+        if (lines.Count == 0)
         {
-            peerListText.text = "No clients connected";
-        }
-        else if (allClients.Count == 1 && signalingClient.IsConnected)
-        {
-            peerListText.text = "Clients in room:\n" + allClients[0] + "\n(Waiting for others...)";
+            peerListText.text = "🏠 Никого нет в комнате\n\nПодключитесь к серверу чтобы увидеть других игроков";
         }
         else
         {
-            peerListText.text = "Clients in room:\n" + string.Join("\n", allClients);
+            peerListText.text = string.Join("\n", lines);
         }
     }
-
-    /// <summary>
-    /// Добавить сообщение в чат
-    /// </summary>
-    private void AddChatMessage(string message)
+    
+    void AddMessage(string message)
     {
-        chatMessages.Add(message);
-        Debug.Log(message);
+        messages.Add(message);
         
-        // Ограничить количество сообщений
-        if (chatMessages.Count > 5)
-        {
-            chatMessages.RemoveAt(0);
-        }
+        // Ограничиваем количество сообщений
+        if (messages.Count > 50) messages.RemoveAt(0);
         
-        // Обновить UI
+        // Обновляем UI
         if (messagesText != null)
         {
-            messagesText.text = string.Join("\n", chatMessages);
+            messagesText.text = string.Join("\n", messages);
         }
     }
 
-    /// <summary>
-    /// Обновить состояние UI
-    /// </summary>
-    private void UpdateUI()
+    void UpdateUI()
     {
-        bool isConnected = signalingClient.IsConnected;
+        bool connected = signaling?.IsConnected == true;
         
-        if (connectButton != null)
-            connectButton.interactable = !isConnected;
-            
-        if (disconnectButton != null)
-            disconnectButton.interactable = isConnected;
-            
-        if (roomInput != null)
-            roomInput.interactable = !isConnected;
-            
+        // Состояние кнопок
+        if (connectButton != null) connectButton.interactable = !connected;
+        if (disconnectButton != null) disconnectButton.interactable = connected;
+        if (roomInput != null) roomInput.interactable = !connected;
+        
+        // Статус
         if (statusText != null)
         {
-            string status = isConnected ? "Connected" : "Disconnected";
-            statusText.text = status;
+            if (connected)
+            {
+                int connectedPeers = webrtc.ConnectedPeersCount;
+                int totalPeers = (signaling.PeersInRoom?.Count ?? 1) - 1;
+                statusText.text = $"🟢 Подключен - Mesh: {connectedPeers}/{totalPeers}";
+            }
+            else
+            {
+                statusText.text = "🔴 Не подключен";
+            }
         }
     }
-
+    
     void Update()
     {
-        WebRTC.Update();
+        UpdateUI(); // Обновляем UI каждый кадр
     }
 
     void OnDestroy()
     {
-        // Отписаться от событий
-        if (signalingClient != null)
+        // Отписываемся от событий
+        if (signaling != null)
         {
-            signalingClient.OnPeerJoined -= OnPeerJoined;
-            signalingClient.OnPeerLeft -= OnPeerLeft;
-            signalingClient.OnSignalingMessage -= OnSignalingMessage;
-            signalingClient.OnConnected -= OnSignalingConnected;
+            signaling.OnPeerJoined -= WhenPeerJoined;
+            signaling.OnPeerLeft -= WhenPeerLeft;
+            signaling.OnSignalingMessage -= webrtc.HandleSignalingMessage;
+            signaling.OnConnected -= WhenConnectedToSignaling;
         }
         
-        if (webRTCManager != null)
+        if (webrtc != null)
         {
-            webRTCManager.OnDataChannelMessage -= OnDataChannelMessage;
-            webRTCManager.OnDataChannelOpen -= OnDataChannelOpen;
-            webRTCManager.OnDataChannelClose -= OnDataChannelClose;
-            webRTCManager.OnIceConnectionStateChanged -= OnIceConnectionStateChanged;
-            webRTCManager.OnConnectionStateChanged -= OnConnectionStateChanged;
+            webrtc.OnMessageReceived -= WhenMessageReceived;
+            webrtc.OnPeerConnected -= WhenPeerConnected;
+            webrtc.OnPeerDisconnected -= WhenPeerDisconnected;
         }
     }
 } 

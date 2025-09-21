@@ -4,255 +4,184 @@ using System;
 using System.Collections.Generic;
 using System.Text;
 
-
 /// <summary>
-/// Клиент для подключения к signaling server'у через WebSocket
-/// Обрабатывает подключение к комнате и обмен сообщениями между peer'ами
+/// ПРОСТОЙ клиент для подключения к signaling серверу
+/// Помогает пирам найти друг друга и обменяться WebRTC данными
 /// </summary>
 public class SignalingClient : MonoBehaviour
 {
-    [Header("Signaling Server Settings")]
-    /// <summary>
-    /// URL WebSocket signaling server'а
-    /// </summary>
+    [Header("🌐 Настройки сервера")]
     public string serverUrl = "ws://95.165.133.136:8080/ws";
-
-    /// <summary>
-    /// Название комнаты для подключения peer'ов
-    /// </summary>
     public string roomCode = "test_room";
-
-    /// <summary>
-    /// ID этого peer'а (генерируется автоматически)
-    /// </summary>
     public string thisPeerID = "unity_client";
-
-    // WebSocket connection
+    
+    // Внутреннее состояние
     private WebSocket webSocket;
     private bool isConnected = false;
-
-    // Events
-    /// <summary>
-    /// Событие: новый peer присоединился к комнате
-    /// </summary>
-    public event Action<string, bool> OnPeerJoined;
-
-    /// <summary>
-    /// Событие: peer покинул комнату
-    /// </summary>
-    public event Action<string> OnPeerLeft;
-
-    /// <summary>
-    /// Событие: получено WebRTC signaling сообщение (offer, answer, ice_candidate)
-    /// </summary>
-    public event Action<SignalingMessage> OnSignalingMessage;
-
-    /// <summary>
-    /// Событие: подключение к signaling server'у установлено
-    /// </summary>
-    public event Action OnConnected;
-
-    // Properties
+    
+    // События - просто и понятно
+    public event Action<string> OnPeerJoined;           // Кто-то присоединился
+    public event Action<string> OnPeerLeft;             // Кто-то ушёл
+    public event Action<SignalingMessage> OnSignalingMessage; // WebRTC сообщение
+    public event Action OnConnected;                    // Мы подключились
+    
+    // Публичные свойства
     public string PeerId => thisPeerID;
     public bool IsConnected => isConnected;
-
-    /// <summary>
-    /// Список peer'ов в комнате
-    /// </summary>
     public List<string> PeersInRoom = new();
 
     void Start()
     {
-        // Generate random peer ID
+        // Генерируем уникальный ID для этого пира
         thisPeerID = "unity_client_" + UnityEngine.Random.Range(1000, 9999);
         PeersInRoom.Add(thisPeerID);
     }
-
+    
     void Update()
     {
-        // Dispatch WebSocket messages
-        if (webSocket != null)
-        {
-            webSocket.DispatchMessageQueue();
-        }
+        // Обрабатываем WebSocket сообщения
+        webSocket?.DispatchMessageQueue();
     }
-
+    
     async void OnApplicationQuit()
     {
-        if (webSocket != null)
-        {
-            await webSocket.Close();
-        }
+        await webSocket?.Close();
     }
-
+    
     /// <summary>
-    /// Подключиться к signaling server'у
+    /// ПОДКЛЮЧИТЬСЯ к signaling серверу
     /// </summary>
     public async void Connect()
     {
         if (isConnected) return;
-
-        Debug.Log("Connecting to signaling server...");
-
-        string fullUrl = $"{serverUrl}?peer_id={thisPeerID}&room={roomCode}";
-        webSocket = new WebSocket(fullUrl);
-
+        
+        Debug.Log($"🔌 Подключаемся к серверу: {roomCode}");
+        
+        string url = $"{serverUrl}?peer_id={thisPeerID}&room={roomCode}";
+        webSocket = new WebSocket(url);
+        
+        // Настраиваем события WebSocket
         webSocket.OnOpen += () =>
         {
-            Debug.Log("Connected to signaling server");
+            Debug.Log("✅ Подключились к signaling серверу");
             isConnected = true;
             OnConnected?.Invoke();
         };
-
+        
         webSocket.OnMessage += (bytes) =>
         {
             string message = Encoding.UTF8.GetString(bytes);
-            HandleSignalingMessage(message);
+            HandleMessage(message);
         };
-
-        webSocket.OnError += (e) =>
+        
+        webSocket.OnError += (error) => Debug.LogError($"❌ Ошибка WebSocket: {error}");
+        
+        webSocket.OnClose += (code) =>
         {
-            Debug.LogError($"Signaling error: {e}");
-        };
-
-        webSocket.OnClose += (e) =>
-        {
-            Debug.Log("Signaling connection closed");
+            Debug.Log("🚪 Отключились от signaling сервера");
             isConnected = false;
             PeersInRoom.Clear();
         };
-
+        
         await webSocket.Connect();
     }
-
+    
     /// <summary>
-    /// Отключиться от signaling server'а
+    /// ОТКЛЮЧИТЬСЯ от signaling сервера
     /// </summary>
     public async void Disconnect()
     {
-        if (webSocket != null)
-        {
-            await webSocket.Close();
-        }
+        await webSocket?.Close();
     }
-
+    
     /// <summary>
-    /// Обработать входящее сообщение от signaling server'а
+    /// Обработать сообщение от сервера
     /// </summary>
-    private void HandleSignalingMessage(string message)
+    private void HandleMessage(string message)
     {
         try
         {
-            Debug.Log($"Received signaling message: {message}");
-            SignalingMessage signalMsg = JsonUtility.FromJson<SignalingMessage>(message);
-
-            if (signalMsg == null)
-            {
-                Debug.LogError("Failed to deserialize SignalingMessage - result is null");
-                return;
-            }
-
-            Debug.Log($"Parsed message - Type: {signalMsg.type}, From: {signalMsg.from}, To: {signalMsg.to}, Payload: {signalMsg.payload}");
-
-            switch (signalMsg.type)
+            var msg = JsonUtility.FromJson<SignalingMessage>(message);
+            if (msg == null) return;
+            
+            Debug.Log($"📨 {msg.type} от {msg.from}");
+            
+            switch (msg.type)
             {
                 case "peer_joined":
-                    HandlePeerJoined(signalMsg);
+                    HandlePeerJoined(msg);
                     break;
                 case "peer_left":
-                    HandlePeerLeft(signalMsg);
+                    HandlePeerLeft(msg);
                     break;
-                // case "room_state":
-                //     HandleRoomState(signalMsg);
-                //     break;
                 case "offer":
                 case "answer":
                 case "ice_candidate":
-                    OnSignalingMessage?.Invoke(signalMsg);
-                    break;
-                default:
-                    Debug.Log($"Unknown message type: {signalMsg.type}");
+                    OnSignalingMessage?.Invoke(msg); // Передаём в WebRTCManager
                     break;
             }
         }
         catch (Exception e)
         {
-            Debug.LogError($"Failed to parse signaling message: {e.Message}");
+            Debug.LogError($"❌ Ошибка парсинга сообщения: {e.Message}");
         }
     }
-
-    private class AllPeersPayload
+    
+    void HandlePeerJoined(SignalingMessage msg)
     {
-        public string peer_id;
-        public List<string> all_peers;
-    }
-    /// <summary>
-    /// Обработать присоединение нового peer'а
-    /// </summary>
-    private void HandlePeerJoined(SignalingMessage msg)
-    {
-        AllPeersPayload allPeersPayload = JsonUtility.FromJson<AllPeersPayload>(msg.payload);
-
-        foreach (string peer in allPeersPayload.all_peers) {
-            if (!PeersInRoom.Contains(peer) && peer != thisPeerID)
-            {
-                PeersInRoom.Add(peer);
-                Debug.Log($"Peer joined: {peer}");
-                OnPeerJoined?.Invoke(peer, msg.from == PeerId);
-            }
-        } 
-    }
-
-    /// <summary>
-    /// Обработать отключение peer'а
-    /// </summary>
-    private void HandlePeerLeft(SignalingMessage msg)
-    {
-        if (PeersInRoom.Contains(msg.from))
+        // Пытаемся получить полный список пиров из payload
+        try
         {
-            PeersInRoom.Remove(msg.from);
-            Debug.Log($"Peer left: {msg.from}");
+            if (!string.IsNullOrEmpty(msg.payload))
+            {
+                var data = JsonUtility.FromJson<PeerJoinedData>(msg.payload);
+                if (data?.all_peers != null)
+                {
+                    // Обновляем список всех пиров в комнате
+                    PeersInRoom.Clear();
+                    PeersInRoom.Add(thisPeerID); // Себя тоже добавляем
+                    
+                    foreach (string peerId in data.all_peers)
+                    {
+                        if (peerId != thisPeerID) PeersInRoom.Add(peerId);
+                    }
+                    
+                    Debug.Log($"📋 Обновили список пиров: {string.Join(", ", PeersInRoom)}");
+                }
+            }
+        }
+        catch (Exception e)
+        {
+            Debug.LogWarning($"⚠️ Не удалось разобрать peer_joined: {e.Message}");
+        }
+
+        // Добавляем пира если его нет (для совместимости)
+        if (!PeersInRoom.Contains(msg.from) && msg.from != thisPeerID)
+        {
+            PeersInRoom.Add(msg.from);
+        }
+        
+        OnPeerJoined?.Invoke(msg.from);
+    }
+    
+    void HandlePeerLeft(SignalingMessage msg)
+    {
+        if (PeersInRoom.Remove(msg.from))
+        {
+            Debug.Log($"🚪 {msg.from} покинул комнату");
             OnPeerLeft?.Invoke(msg.from);
         }
     }
-
+    
     /// <summary>
-    /// Обработать состояние комнаты (список всех peer'ов в комнате)
-    /// </summary>
-    // private void HandleRoomState(SignalingMessage msg)
-    // {
-    //     try
-    //     {
-    //         // payload должно содержать массив peer ID'ов
-    //         if (!string.IsNullOrEmpty(msg.payload))
-    //         {
-    //             string[] peerIds = JsonUtility.FromJson<string[]>(msg.payload);
-    //             foreach (string peerId in peerIds)
-    //             {
-    //                 if (peerId != thisPeerID && !PeersInRoom.Contains(peerId))
-    //                 {
-    //                     PeersInRoom.Add(peerId);
-    //                     Debug.Log($"Found existing peer: {peerId}");
-    //                     OnPeerJoined?.Invoke(peerId, false);
-    //                 }
-    //             }
-    //         }
-    //     }
-    //     catch (Exception e)
-    //     {
-    //         Debug.LogError($"Failed to parse room state: {e.Message}");
-    //     }
-    // }
-
-    /// <summary>
-    /// Отправить сообщение через signaling server
+    /// ОТПРАВИТЬ сообщение через signaling сервер
     /// </summary>
     public async void SendMessage(SignalingMessage message)
     {
         if (webSocket != null && isConnected)
         {
-            string jsonMessage = JsonUtility.ToJson(message);
-            await webSocket.SendText(jsonMessage);
+            string json = JsonUtility.ToJson(message);
+            await webSocket.SendText(json);
         }
     }
 } 
